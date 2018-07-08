@@ -5,5 +5,5 @@
 *.la
 *.a
 
-# extra
-lib/
+# other
+libs/
