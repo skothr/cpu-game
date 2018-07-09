@@ -8,9 +8,9 @@
 #include "vector.hpp"
 #include "player.hpp"
 #include "model.hpp"
-#include "chunk.hpp"
 #include "geometry.hpp"
 #include "physics.hpp"
+#include "chunkMap.hpp"
 
 #include <QOpenGLTexture>
 
@@ -52,9 +52,10 @@ private:
   bool mMouseDown = false;
   cShader *mBlockShader = nullptr;
   cShader *mWireShader = nullptr;
-  cChunk mChunk;
+  //cChunk mChunk;
   cPlayer mPlayer;
   QPoint mMousePos;
+  cChunkMap mChunkMap;
   
   //QThread *mThread = nullptr;
   //bool mPhysicsRunning = false;

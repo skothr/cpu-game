@@ -22,5 +22,5 @@ INCLUDEPATH = ./inc
 OBJECTS_DIR = ./obj
 
 # Input
-HEADERS += inc/glWidget.hpp inc/gameWidget.hpp inc/mainWindow.hpp inc/matrix.hpp inc/vector.hpp inc/cpu.hpp inc/memory.hpp inc/device.hpp inc/logging.hpp inc/shader.hpp inc/geometry.hpp inc/player.hpp inc/model.hpp inc/mesh.hpp inc/objLoader.hpp inc/chunk.hpp inc/block.hpp inc/octree.hpp inc/physics.hpp inc/collision.hpp
-SOURCES += src/main.cpp src/glWidget.cpp src/gameWidget.cpp src/mainWindow.cpp src/cpu.cpp src/memory.cpp src/device.cpp src/shader.cpp src/geometry.cpp src/player.cpp src/model.cpp src/mesh.cpp src/chunk.cpp src/octree.cpp src/collision.cpp
+HEADERS += inc/glWidget.hpp inc/gameWidget.hpp inc/mainWindow.hpp inc/matrix.hpp inc/vector.hpp inc/cpu.hpp inc/memory.hpp inc/device.hpp inc/logging.hpp inc/shader.hpp inc/geometry.hpp inc/player.hpp inc/model.hpp inc/mesh.hpp inc/objLoader.hpp inc/chunkMap.hpp inc/block.hpp inc/octree.hpp inc/physics.hpp inc/collision.hpp
+SOURCES += src/main.cpp src/glWidget.cpp src/gameWidget.cpp src/mainWindow.cpp src/cpu.cpp src/memory.cpp src/device.cpp src/shader.cpp src/geometry.cpp src/player.cpp src/model.cpp src/mesh.cpp src/chunkMap.cpp src/octree.cpp src/collision.cpp

@@ -21,7 +21,6 @@
 #include "vertex.hpp"
 #include "objLoader.hpp"
 #include "block.hpp"
-#include "chunk.hpp"
 #include "vector.hpp"
 
 #define VSHADER_FILE "shaders/block.vsh"
@@ -36,78 +35,39 @@
 
 block_t gBlock;
 
-#define CHUNK_SIZE 64
 
 cGameWidget::cGameWidget(QWidget *parent)
-  : GlWidget(parent), mChunk(Vector3i{CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE}),
-    mPlayer({4,4,1}, {0,1,0}, {0,0,1}, &this->mChunk), mMousePos(-1000,-1000),
+  : GlWidget(parent), mChunkMap(Point2i{0,0}),//mChunk(Vector3i{CHUNK_BLOCKS, CHUNK_BLOCKS, CHUNK_BLOCKS}),
+    mPlayer({3,3,1}, {0,1,0}, {0,0,1}, &this->mChunkMap), mMousePos(-1000,-1000),
     mTex(QOpenGLTexture::Target::Target2D)
 {
-  cChunk::loadModels();
-
-  std::vector<Point3i> blocks;
-  std::vector<block_t> types;
-  blocks.reserve(CHUNK_SIZE*CHUNK_SIZE*4);
-  types.reserve(CHUNK_SIZE*CHUNK_SIZE*4);
+  cChunkMap::loadModels();
+  
+  mChunkMap.loadChunk(Point2i{0,0});
+  //mChunkMap.loadChunk(Point2i{0,1});
+  //mChunkMap.loadChunk(Point2i{1,0});
+  //mChunkMap.loadChunk(Point2i{1, 1});
   // floor
-  for(int x = 0; x < CHUNK_SIZE; x++)
+  for(int x = 0; x < CHUNK_BLOCKS; x++)
     {
-      for(int y = 0; y < CHUNK_SIZE; y++)
+      for(int y = 0; y < CHUNK_BLOCKS; y++)
 	{
-	  for(int z = 0; z < CHUNK_SIZE; z++)
+	  for(int z = 0; z < CHUNK_BLOCKS/2; z++)
 	    {
-	      if(x == 0 || x == CHUNK_SIZE-1 || y == 0 || y == CHUNK_SIZE-1 || z == 0 || z == CHUNK_SIZE/2 - 1)
+	      if(x == 0 || x == CHUNK_BLOCKS-1 ||
+		 y == 0 || y == CHUNK_BLOCKS-1 ||
+		 z == 0 || z == CHUNK_BLOCKS/2 - 1 )
 		{
-		  blocks.push_back(Point3i({x,y,z}));
-		  types.push_back(block_t::FLOOR);
+		  mChunkMap.set(Point3i{x,y,z}, block_t::FLOOR);
 		}
 	    }
 	}
     }
-  /*
-  // walls
-  for(int y = 0; y < CHUNK_SIZE; y++)
-    {
-      for(int z = 1; z < CHUNK_SIZE/2; z++)
-	{
-	  blocks.push_back(Point3i({0,y,z}));
-	  types.push_back(block_t::FLOOR);
-	}
-    }
-  for(int y = 0; y < CHUNK_SIZE; y++)
-    {
-      for(int z = 1; z < CHUNK_SIZE/2; z++)
-	{
-	  blocks.push_back(Point3i({CHUNK_SIZE - 1,y,z}));
-	  types.push_back(block_t::FLOOR);
-	}
-    }
-  for(int x = 1; x < CHUNK_SIZE-1; x++)
-    {
-      for(int z = 1; z < CHUNK_SIZE/2; z++)
-	{
-	  blocks.push_back(Point3i({x,0,z}));
-	  types.push_back(block_t::FLOOR);
-	}
-    }
-  for(int x = 1; x < CHUNK_SIZE - 1; x++)
-    {
-      for(int z = 1; z < CHUNK_SIZE/2; z++)
-	{
-	  blocks.push_back(Point3i({x,CHUNK_SIZE-1,z}));
-	  types.push_back(block_t::FLOOR);
-	}
-    }
-  */
-  // devices
-  blocks.push_back(Point3i{10, 10, 1});
-  types.push_back(block_t::CPU);
-  blocks.push_back(Point3i{10, 11, 1});
-  types.push_back(block_t::DEVICE);
-  blocks.push_back(Point3i{10, 12, 1});
-  types.push_back(block_t::MEMORY);
   
-  mChunk.placeBlocks(blocks, types);
+  // devices
+  mChunkMap.set(Point3i{10, 10, 1}, block_t::CPU);
+  mChunkMap.set(Point3i{10, 11, 1}, block_t::DEVICE);
+  mChunkMap.set(Point3i{10, 12, 1}, block_t::MEMORY);
   
   mBlockShader = new cShader(this);
   mWireShader = new cShader(this);
@@ -140,8 +100,8 @@ cGameWidget::~cGameWidget()
 
   LOGD("Cleaning up GL...");
   makeCurrent();
-  mChunk.cleanupGL();
-  cChunk::modelCleanupGL();
+  mChunkMap.cleanupGL();
+  cChunkMap::modelCleanupGL();
   mPlayer.cleanupGL();
   mTex.destroy();
   doneCurrent();
@@ -169,14 +129,13 @@ void cGameWidget::glInit()
       throw std::exception();
     }
 
-
   mProjMat = matProjection(fov, aspect, zNear, zFar);
   Matrix4 viewMat = mPlayer.getView();
   mBlockShader->bind();
   mBlockShader->setUniform("pvm", mProjMat*viewMat);
   mBlockShader->setUniform("uTex", 0);
-  cChunk::modelInitGL(mBlockShader);
-  mChunk.initGL(mBlockShader);
+  cChunkMap::modelInitGL(mBlockShader);
+  mChunkMap.initGL(mBlockShader);
   mBlockShader->release();
   
   mWireShader->bind();
@@ -193,10 +152,10 @@ void cGameWidget::glInit()
     {
       QImage texImg("./res/texAtlas.png");
       mTex.bind(0);
+      mTex.setMipLevels(4);
       mTex.setData(texImg, QOpenGLTexture::GenerateMipMaps);
       mTex.setWrapMode(QOpenGLTexture::ClampToEdge);
       mTex.setMinMagFilters(QOpenGLTexture::NearestMipMapLinear, QOpenGLTexture::Nearest);
-      mTex.setMipLevels(4);
       mTex.generateMipMaps(0);
       mTex.release();
     }
@@ -229,7 +188,7 @@ void cGameWidget::render()
 
   mBlockShader->bind();
   mTex.bind(0);
-  mChunk.render(mBlockShader, m);
+  mChunkMap.render(mBlockShader, m);
   mTex.release(0);
   mBlockShader->release();
   

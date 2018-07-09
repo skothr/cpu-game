@@ -119,17 +119,17 @@ void cMesh::render(cShader *shader)
       mIbo->bind();
       if(mNeedUpdate & UPDATE_VERTICES)
 	{
-	  LOGD("Updating vertices...");
+	  //LOGD("Updating vertices...");
 	  mVbo->allocate(mVertices.data(), mVertices.size()*sizeof(objl::Vertex));
 	  mNeedUpdate &= ~UPDATE_VERTICES;
-	  LOGD("NEED UPDATE: 0x%02X", mNeedUpdate);
+	  //LOGD("NEED UPDATE: 0x%02X", mNeedUpdate);
 	}
       if(mNeedUpdate & UPDATE_INDICES)
 	{
-	  LOGD("Updating indices...");
+	  //LOGD("Updating indices...");
 	  mIbo->allocate(mIndices.data(), mIndices.size()*sizeof(unsigned int));
 	  mNeedUpdate &= ~UPDATE_INDICES;
-	  LOGD("NEED UPDATE: 0x%02X", mNeedUpdate);
+	  //LOGD("NEED UPDATE: 0x%02X", mNeedUpdate);
 	}
       glDrawElements(mMode, mIndices.size(), GL_UNSIGNED_INT, 0);
       mIbo->release();

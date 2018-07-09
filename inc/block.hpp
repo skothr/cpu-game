@@ -15,9 +15,18 @@ enum class block_t : uint8_t
    DEVICE,
    CPU,
    MEMORY,
+   LIGHT,
    
    COUNT
   };
+
+
+class cBlockUpdate
+{
+public:
+  cBlockUpdate();
+private:
+};
 
 class cBlock
 {
@@ -52,8 +61,9 @@ public:
   */
   
   block_t type = block_t::NONE;
-  float light = 0.0f;
-  float oxygen = 1.0f;
+  
+  //float light = 0.0f;
+  //float oxygen = 1.0f;
 };
 
 

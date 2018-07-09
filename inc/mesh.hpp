@@ -39,8 +39,12 @@ public:
   bool setVertices(const std::vector<objl::Vertex> &vertices);
   bool setIndices(const std::vector<unsigned int> &indices);
 
+  void setUpdate() { mNeedUpdate |= UPDATE_VERTICES | UPDATE_INDICES; }
+  
   const std::vector<objl::Vertex>& getVertices() const { return mVertices; }
   const std::vector<unsigned int>& getIndices() const { return mIndices; }
+  std::vector<objl::Vertex>& getVertices() { return mVertices; }
+  std::vector<unsigned int>& getIndices() { return mIndices; }
   
   bool initGL(cShader *shader);
   void cleanupGL();

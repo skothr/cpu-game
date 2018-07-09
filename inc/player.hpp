@@ -3,11 +3,11 @@
 
 #include <QMatrix4x4>
 
-#include "chunk.hpp"
 #include "block.hpp"
 #include "geometry.hpp"
 #include "collision.hpp"
 #include "model.hpp"
+#include "chunkMap.hpp"
 
 struct PlayerDesc
 {
@@ -18,7 +18,7 @@ struct PlayerDesc
 class cPlayer : public cCollidable
 {
 public:
-  cPlayer(Vector3f pos, Vector3f forward, Vector3f up, cChunk *chunk);
+  cPlayer(Vector3f pos, Vector3f forward, Vector3f up, cChunkMap *map);
 
   void addForce(float right, float forward);
   void setXForce(float right);
@@ -51,14 +51,14 @@ private:
   float mPitch = 0.0;
 
   Vector3f mMoveForce;
-  Vector3i mGrounded = Vector3i{0,0,-1};
+  Vector3i mGrounded = Vector3i{0,0,0};
   
   float mPitchMult = 1.0;
   float mYawMult = 1.0;
   float mMoveSpeed = 1.0;
 
-  cChunk *mChunk = nullptr;
-  std::vector<cBlock*> mInventory;
+  cChunkMap *mMap;
+  std::vector<block_t> mInventory;
 
   cModelObj mHighlightModel;
   cBlock *mSelected = nullptr;
