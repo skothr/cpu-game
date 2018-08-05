@@ -7,20 +7,37 @@ QT += core gui widgets
 
 # OpenGL
 QT += opengl openglextensions
-CONFIG += c++14 debug
 
 # Program
 TARGET = cpugame
-TEMPLATE = app debug
+TEMPLATE = app debug_and_release
 
+CONFIG += c++1z warn_off debug_and_release
+LIBS += -lstdc++fs
 
-
+# sources
+HEADERS += source/inc/glWidget.hpp source/inc/gameWidget.hpp source/inc/mainWindow.hpp source/inc/shader.hpp source/inc/textureAtlas.hpp source/inc/overlay.hpp
+SOURCES += source/src/*.cpp
 
 # Paths
-DEPENDPATH = ./src
-INCLUDEPATH = ./inc
-OBJECTS_DIR = ./obj
+DEPENDPATH = ./source/src
+INCLUDEPATH = ./source/inc
 
-# Input
-HEADERS += inc/glWidget.hpp inc/gameWidget.hpp inc/mainWindow.hpp inc/matrix.hpp inc/vector.hpp inc/cpu.hpp inc/memory.hpp inc/device.hpp inc/logging.hpp inc/shader.hpp inc/geometry.hpp inc/player.hpp inc/model.hpp inc/mesh.hpp inc/objLoader.hpp inc/chunkMap.hpp inc/block.hpp inc/octree.hpp inc/physics.hpp inc/collision.hpp
-SOURCES += src/main.cpp src/glWidget.cpp src/gameWidget.cpp src/mainWindow.cpp src/cpu.cpp src/memory.cpp src/device.cpp src/shader.cpp src/geometry.cpp src/player.cpp src/model.cpp src/mesh.cpp src/chunkMap.cpp src/octree.cpp src/collision.cpp
+#OBJECTS_DIR = build/.obj
+#MOC_DIR = build/.moc
+#RCC_DIR = build/.rcc
+#UI_DIR = build/.ui
+
+
+# CONFIG(debug, debug|release) {
+#     OBJECTS_DIR = build/debug/.obj
+#     MOC_DIR = build/debug/.moc
+#     RCC_DIR = build/debug/.rcc
+#     UI_DIR = build/debug/.ui
+# }
+# CONFIG(release, debug|release) {
+#     OBJECTS_DIR = build/release/.obj
+#     MOC_DIR = build/release/.moc
+#     RCC_DIR = build/release/.rcc
+#     UI_DIR = build/release/.ui
+# }

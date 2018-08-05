@@ -1,9 +1,10 @@
 #version 330
 
-#define LINE_W 0.01
+#define LINE_W 0.05
 
 smooth in vec3 color;
 smooth in vec2 texCoords;
+smooth in vec3 normal;
 out vec4 fragColor;
 
 void main()

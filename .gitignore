@@ -1,9 +1,20 @@
 # build
+cpugame
+.qmake.stash
 *.d
 *.o
 *.s
 *.la
 *.a
+build/
+debug/
+release/
+old/
+Makefile
+Makefile.Debug
+Makefile.Release
 
 # other
 libs/
+worlds/
+*.old
