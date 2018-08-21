@@ -9,6 +9,8 @@
 #include "model.hpp"
 #include "world.hpp"
 
+#include <queue>
+
 
 class cCamera : public cCollidable
 {
@@ -59,7 +61,6 @@ public:
   void addZForce(float up);
   
   virtual void update(double dt);
-  virtual void onUpdate(double dt) {};
   Point3i getCollisions() const;
   
   virtual bool initGL();
@@ -67,8 +68,6 @@ public:
   virtual void render(Matrix4 pvm);
   
 protected:
-  std::vector<block_t> mInventory;
-
   cWorld *mWorld;
   float mReach;
 
@@ -85,6 +84,11 @@ protected:
   Vector3i mGrounded = Vector3i{0,0,0};
   Vector3i mGroundedDir = Vector3i{0,0,0};
   Vector<bool, 3> mIsGrounded = Vector<bool,3>{false, false, false};
+
+  virtual void onUpdate(double dt) {}
+  virtual void onPickup(block_t type) {}
+  virtual block_t onPlace() { return block_t::NONE; }
+  
 };
 
 
@@ -95,10 +99,16 @@ class cGodPlayer : public cPlayer
 public:
   cGodPlayer(QObject *qparent, Vector3f pos, Vector3f forward, Vector3f up, cWorld *world);
 
+  void setPlaceBlock(block_t type);
+  void nextPlaceBlock();
+  void prevPlaceBlock();
+  
+protected:
+  block_t mPlaceBlock = block_t::NONE;
+  
   virtual void onUpdate(double dt) override;
-  
-private:
-  
+  virtual void onPickup(block_t type) override;
+  virtual block_t onPlace() override;
 };
 
 
@@ -113,9 +123,13 @@ public:
 
   void jump(float strength);
 
-  virtual void onUpdate(double dt) override;
 
-private:
+protected:
+  std::queue<block_t> mInventory;
+
+  virtual void onUpdate(double dt) override;
+  virtual void onPickup(block_t type) override;
+  virtual block_t onPlace() override;
 
   
 };

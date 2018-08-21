@@ -170,6 +170,7 @@ bool cMesh::initGL(cShader *shader)
       shader->setAttrBuffer(0, GL_FLOAT, 0, 3, sizeof(cSimpleVertex) );
       shader->setAttrBuffer(1, GL_FLOAT, 3 * sizeof(float), 3, sizeof(cSimpleVertex) );
       shader->setAttrBuffer(2, GL_FLOAT, 6 * sizeof(float), 3, sizeof(cSimpleVertex) );
+      shader->setAttrBuffer(3, GL_FLOAT, 9 * sizeof(float), 1, sizeof(cSimpleVertex) );
   
       mVao->release();
       mVbo->release();

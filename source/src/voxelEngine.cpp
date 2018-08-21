@@ -4,25 +4,22 @@
 #include "world.hpp"
 #include "player.hpp"
 #include "timedThread.hpp"
-#include "shader.hpp"
-#include "textureAtlas.hpp"
 
 #include <chrono>
 
 
 #define START_CHUNK Point3i({0, 0, 0})
-#define CHUNK_RAD Vector3i({2, 2, 1})
+#define CHUNK_RAD Vector3i({6, 6, 2})
 #define START_POS Point3f({START_CHUNK[0]*cChunk::sizeX + cChunk::sizeX/2, \
-				  START_CHUNK[1]*cChunk::sizeY + cChunk::sizeY/2, \
-				  START_CHUNK[2]*cChunk::sizeZ + 8 })
+                           START_CHUNK[1]*cChunk::sizeY + cChunk::sizeY/2, \
+                           START_CHUNK[2]*cChunk::sizeZ + 8 })
 #define PLAYER_EYE Vector3f{0,1,0}
 #define PLAYER_UP Vector3f{0,0,1}
 
-#define PLAYER_FOV 45
+#define PLAYER_FOV 60
 #define PLAYER_ASPECT 1.0
 #define PLAYER_Z_NEAR 0.01
 #define PLAYER_Z_FAR 1000.0
-
 
 #define PHYSICS_TIMESTEP_MS 10 //ms
 #define PHYSICS_TIMESTEP_S (TIMESTEP_MS / 1000.0f)
@@ -32,14 +29,10 @@
 
 cVoxelEngine::cVoxelEngine(QObject *qParent, int numThreads, const std::string &worldName, uint32_t seed)
 {
-  mWorld = new cWorld(worldName, numThreads, START_CHUNK, CHUNK_RAD);
-  mWorld->setSeed(seed);
+  mWorld = new cWorld(worldName, seed, numThreads, START_CHUNK, CHUNK_RAD);
   mPlayer = new cGodPlayer(qParent, START_POS, PLAYER_EYE, PLAYER_UP, mWorld);
   mPhysics = new cTimedThread("Physics", std::bind(&cVoxelEngine::stepPhysics,
                                                    this, std::placeholders::_1), false );
-  mSimpleShader = new cShader(qParent);
-  mComplexShader = new cShader(qParent);
-  mTexAtlas = new cTextureAtlas(qParent, ATLAS_BLOCK_SIZE);
 }
 
 cVoxelEngine::~cVoxelEngine()
@@ -82,13 +75,14 @@ void cVoxelEngine::stepPhysics(int us)
     {
       mPlayer->update((double)us / 1000000.0);
     }
+  updateBlocks(us);
 }
 void cVoxelEngine::updateBlocks(int us)
 {
-  //mWorld.update();
+  mWorld->update();
 }
 
-bool cVoxelEngine::initGl()
+bool cVoxelEngine::initGl(QObject *qparent)
 {
   LOGD("VOXEL INIT GL");
   // optimizations
@@ -97,59 +91,22 @@ bool cVoxelEngine::initGl()
   glEnable(GL_CULL_FACE);
 
   
-  // load shaders
-  if(!mSimpleShader->loadProgram("./shaders/simpleBlock.vsh", "./shaders/simpleBlock.fsh",
-				 {"posAttr", "normalAttr", "texCoordAttr"}, {"pvm", "uTex"} ))
-    {
-      LOGE("Simple block shader failed to load!");
-      return false;
-    }
-  // if(!mComplexShader->loadProgram("./shaders/complexBlock.vsh", "./shaders/complexBlock.fsh",
-  //       			  {"posAttr", "normalAttr", "texCoordAttr"}, {"pvm", "uBlockType", "uTex"} ))
-  //   {
-  //     LOGE("Complex block shader failed to load!");
-  //     throw std::exception();
-  //   }
-
-  
   Matrix4 viewMat = mPlayer->getView();
   mProjMat = matProjection(PLAYER_FOV, PLAYER_ASPECT, PLAYER_Z_NEAR, PLAYER_Z_FAR);
-
   
-  LOGD("simpleShader");
-  mSimpleShader->bind();
-  mSimpleShader->setUniform("pvm", mProjMat * viewMat);
-  mSimpleShader->setUniform("uTex", 0);
-  LOGD("mWorld initGL");
-  mWorld->initGL(mSimpleShader);
-  mSimpleShader->release();
-  
-  // LOGD("complexShader");
-  // mComplexShader->bind();
-  // mComplexShader->setUniform("pvm", mProjMat*viewMat);
-  // mComplexShader->setUniform("uTex", 0);
-  // cWorld::modelInitGL(mComplexShader);
-  // mComplexShader->release();
+  mWorld->initGL(qparent);
   
   if(!mPlayer->initGL())
-    {
-      LOGE("Player initGl() failed!");
-    }
-LOGD("Tex init GL..");
+    { LOGE("Player initGl() failed!");
 
-std::cout << "TES ATLAS: " << (long)mTexAtlas << "\n";
-
-  if(!mTexAtlas->create("./res/texAtlas.png"))
-    {
-      LOGE("Failed to load texture atlas!");
     }
   std::cout << "Starting player physics...\n";
-startPhysics(PHYSICS_TIMESTEP_MS);
+  startPhysics(PHYSICS_TIMESTEP_MS);
   std::cout << "Starting to load chunks...\n";
   mWorld->startLoading();
   std::cout << "Started" << std::endl;
   LOGD("VOXEL INIT GL DONE");
-return true;
+  return true;
 }
 
 void cVoxelEngine::cleanUpGl()
@@ -157,7 +114,6 @@ void cVoxelEngine::cleanUpGl()
   LOGD("VOXEL CLEANUP GL");
   mWorld->cleanupGL();
   mPlayer->cleanupGL();
-  mTexAtlas->destroy();
   LOGD("VOXEL CLEANUP GL DONE");
 }
 
@@ -191,23 +147,13 @@ double cVoxelEngine::printFps() const
 
 void cVoxelEngine::render()
 {
-  //LOGD("VOXEL RENDER");
   printFps();
   
   Matrix4 m = mProjMat * mPlayer->getView();
   
-  //mWorld.update();
 
-  mTexAtlas->bind();
-  mSimpleShader->bind();
-  mWorld->renderSimple(mSimpleShader, m);
-  mSimpleShader->release();
-  // mComplexShader->bind();
-  // mWorld.renderComplex(mComplexShader, m);
-  // mComplexShader->release();
-  mTexAtlas->release();
+  mWorld->render(m);
   mPlayer->render(m);
- // LOGD("VOXEL RENDER DONE");
   //glFinish();
 }
 
@@ -224,6 +170,20 @@ void cVoxelEngine::setProjection(const ProjDesc &desc)
   QMatrix4x4 p;
   p.perspective(mProjDesc.fov, mProjDesc.aspect, mProjDesc.znear, mProjDesc.zfar);
   mProjMat = p;
+}
+
+
+void cVoxelEngine::setTool(block_t type)
+{
+  mPlayer->setPlaceBlock(type);
+}
+void cVoxelEngine::nextTool()
+{
+  mPlayer->nextPlaceBlock();
+}
+void cVoxelEngine::prevTool()
+{
+  mPlayer->prevPlaceBlock();
 }
 
 

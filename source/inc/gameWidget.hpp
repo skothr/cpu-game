@@ -6,8 +6,6 @@
 
 #include "glWidget.hpp"
 #include "vector.hpp"
-#include "geometry.hpp"
-#include "textureAtlas.hpp"
 #include "voxelEngine.hpp"
 
 class QTimer;

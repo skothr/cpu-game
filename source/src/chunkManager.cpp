@@ -1,161 +1,94 @@
 #include "chunkManager.hpp"
 #include "shader.hpp"
+#include "textureAtlas.hpp"
+#include "terrain.hpp"
 
 #include <unistd.h>
 #include <chrono>
 
-#define LOAD_SLEEP_US 1000
+#define LOAD_SLEEP_US 2000
+
+inline int cChunkManager::getThread(const Point3i &cp)
+{
+  return (cp[0] + cp[1] + cp[2]) % mUpdatePool.numThreads();
+}
 
 // class definitions
 cChunkManager::cChunkManager(int loadThreads, const Point3i &center,
 			     const Vector3i &loadRadius )
-  : mPool(loadThreads, std::bind(&cChunkManager::updateChunks, this,
-                                 std::placeholders::_1 ), LOAD_SLEEP_US ),
+  : mUpdatePool(loadThreads, std::bind(&cChunkManager::updateWorker, this,
+                                       std::placeholders::_1 ), LOAD_SLEEP_US ),
+    mLoader(1, nullptr), //mLoadLocks(loadThreads),
+    //mLoadQueues(loadThreads), mUnloadQueues(loadThreads),
+    mChunks(loadRadius * 2 + 1, center - loadRadius),
     mCenter(center), mLoadRadius(loadRadius), mChunkDim(loadRadius * 2 + 1),
-    mMinChunk(center - loadRadius), mMaxChunk(center + loadRadius),
-    mNoise(128397304)
+    mMinChunk(center - loadRadius), mMaxChunk(center + loadRadius)
 {
-  std::lock_guard<std::mutex> lock(mChunkLock);
-  std::cout << "cChunkManager constructing --> " << mCenter << ", " << mLoadRadius << "\n";
-  mChunks.reserve(mChunkDim[0] * mChunkDim[1] * mChunkDim[2]*2);
-
-  for(int i = 0; i < (mChunkDim[0]*mChunkDim[1]*mChunkDim[2]); i++)
-    {
-      const Point3i chunkPos = mMinChunk + unflattenIndex(i);
-      mChunks.push_back(new ChunkData(chunkPos));
-      if(chunkPos == center - Vector3i{0,0,1})
-        {
-          mChunks[i]->chunk->setWorldPos(mCenter - Vector3i{0,0,1});
-	  //mChunks[i]->loading = true;
-          // load chunk below the center first so player doesn't fall while loading
-          mLoader.load(mChunks[i]->chunk);
-        }
-    }
-
-  const int total = (mChunkDim[0]*mChunkDim[1]*mChunkDim[2]);
-  for(int i = 0; i < total; i++)
-    {
-      int next = (adjPX(i)+total) % total;
-      //std::cout << "PX! Next: " << next << "\n";
-      mChunks[i]->chunk->setNeighbor(normal_t::PX, mChunks[next]->chunk);
-      mChunks[next]->chunk->setNeighbor(normal_t::NX, mChunks[i]->chunk);
-      
-      next = (adjNX(i)+total) % total;
-      //std::cout << "NX! Next: " << next << "\n";
-      mChunks[i]->chunk->setNeighbor(normal_t::NX, mChunks[next]->chunk);
-      mChunks[next]->chunk->setNeighbor(normal_t::PX, mChunks[i]->chunk);
-      next = (adjPY(i)+total) % total;
-      //std::cout << "PY! Next: " << next << "\n";
-      mChunks[i]->chunk->setNeighbor(normal_t::PY, mChunks[next]->chunk);
-      mChunks[next]->chunk->setNeighbor(normal_t::NY, mChunks[i]->chunk);
-      next = (adjNY(i)+total) % total;
-      //std::cout << "NY! Next: " << next << "\n";
-      mChunks[i]->chunk->setNeighbor(normal_t::NY, mChunks[next]->chunk);
-      mChunks[next]->chunk->setNeighbor(normal_t::PY, mChunks[i]->chunk);
-      next = (adjPZ(i)+total) % total;
-      //std::cout << "PZ! Next: " << next << "\n";
-      mChunks[i]->chunk->setNeighbor(normal_t::PZ, mChunks[next]->chunk);
-      mChunks[next]->chunk->setNeighbor(normal_t::NZ, mChunks[i]->chunk);
-      next = (adjNZ(i)+total) % total;
-      //std::cout << "NZ! Next: " << next << "\n";
-      mChunks[i]->chunk->setNeighbor(normal_t::NZ, mChunks[next]->chunk);
-      mChunks[next]->chunk->setNeighbor(normal_t::PZ, mChunks[i]->chunk);
-      
-      /*
-      Point3i arrPos = unflattenIndex(i);
-      if(arrPos[0] < mChunkDim[0])
-        {
-          //const int next = index(Vector3i{(arrPos[0] + 1) % mChunkDim[0],arrPos[1],arrPos[2]});
-          const int next = adjPX(i) % (mChunkDim[0]*mChunkDim[1]*mChunkDim[2]);
-          std::cout << "PX! Next: " << next << "\n";
-          mChunks[i]->chunk->setNeighbor(blockSide_t::PX, mChunks[next]->chunk);
-          mChunks[next]->chunk->setNeighbor(blockSide_t::NX, mChunks[i]->chunk);
-        }
-      else if(arrPos[0] > 0)
-        {
-          //const int next = index(Vector3i{(arrPos[0] - 1) % mChunkDim[0],arrPos[1],arrPos[2]});
-          const int next = adjNX(i) % (mChunkDim[0]*mChunkDim[1]*mChunkDim[2]);
-          std::cout << "NX!\n";
-          mChunks[i]->chunk->setNeighbor(blockSide_t::NX, mChunks[next]->chunk);
-          mChunks[next]->chunk->setNeighbor(blockSide_t::PX, mChunks[i]->chunk);
-        }
-      if(arrPos[1] < mChunkDim[1])
-        {
-          //const int next = index(Vector3i{arrPos[0], (arrPos[1] + 1) % mChunkDim[1],arrPos[2]});
-          const int next = adjPY(i) % (mChunkDim[0]*mChunkDim[1]*mChunkDim[2]);
-          std::cout << "PY!\n";
-          mChunks[i]->chunk->setNeighbor(blockSide_t::PY, mChunks[next]->chunk);
-          mChunks[next]->chunk->setNeighbor(blockSide_t::NY, mChunks[i]->chunk);
-        }
-      else if(arrPos[1] > 0)
-        {
-          //const int next = index(Vector3i{arrPos[0], (arrPos[1] + 1) % mChunkDim[1],arrPos[2]});
-          const int next = adjNY(i) % (mChunkDim[0]*mChunkDim[1]*mChunkDim[2]);
-          std::cout << "NY!\n";
-          mChunks[i]->chunk->setNeighbor(blockSide_t::NY, mChunks[next]->chunk);
-          mChunks[next]->chunk->setNeighbor(blockSide_t::PY, mChunks[i]->chunk);
-        }
-              
-      if(arrPos[2] < mChunkDim[2])
-        {
-          //const int next = index(Vector3i{arrPos[0],arrPos[1],(arrPos[2] + 1) % mChunkDim[2]});
-          const int next = adjPZ(i) % (mChunkDim[0]*mChunkDim[1]*mChunkDim[2]);
-          std::cout << "PZ!\n";
-          mChunks[i]->chunk->setNeighbor(blockSide_t::PZ, mChunks[next]->chunk);
-          mChunks[next]->chunk->setNeighbor(blockSide_t::NZ, mChunks[i]->chunk);
-        }
-      else if(arrPos[2] > 0)
-        {
-          //const int next = index(Vector3i{arrPos[0],arrPos[1],(arrPos[2] + 1) % mChunkDim[2]});
-          const int next = adjNZ(i) % (mChunkDim[0]*mChunkDim[1]*mChunkDim[2]);
-          std::cout << "NZ!\n";
-          mChunks[i]->chunk->setNeighbor(blockSide_t::NZ, mChunks[next]->chunk);
-          mChunks[next]->chunk->setNeighbor(blockSide_t::PZ, mChunks[i]->chunk);
-        }
-      */
-    }
   
 }
 
 cChunkManager::~cChunkManager()
 {
-  //mFileManager.stop();
-  //clear();
-  mPool.stop();
+  stop();
 }
 
-void cChunkManager::setSeed(uint32_t seed)
+bool cChunkManager::setWorld(std::string worldName, uint32_t seed)
 {
-  mSeed = seed;
-  mNoise.setSeed(seed);
-  mLoader.setSeed(seed);
-}
+  LOGD("CHUNK MANAGER SETTING WORLD");
+  if(worldName == "")
+    {
+      std::cout << "Enter world name:  ";
+      std::cin >> worldName;
+    }
+  
+  std::vector<std::string> worlds = mLoader.listWorlds();
+  bool found = false;
+  for(auto w : worlds)
+    {
+      if(w == worldName)
+        {
+          found = true;
+          break;
+        }
+    }
+          
+  if(!found)
+    {
+      if(!mLoader.createWorld(worldName, seed))
+        {
+          LOGD("FAILED TO CREATE WORLD");
+          exit(1);
+        }
+    }
+  if(!mLoader.loadWorld(worldName))
+    {
+      LOGD("FAILED TO LOAD WORLD");
+      exit(1);
+    }
 
-bool cChunkManager::setWorld(const std::string &worldName)
-{
-  bool result =  mLoader.loadWorld(worldName);
-  mSeed = mLoader.getSeed();
-  return result;
+  return true;
 }
 
 void cChunkManager::start()
 {
-  //mFileManager.start();
-  mPool.start();
+  //LOGD("CHUNK MANAGER STARTING");
+  //mLoader.start();
+  //mUpdating = true;
+  mUpdatePool.start();
 }
 void cChunkManager::stop()
 {
-  //mFileManager.stop();
-  mPool.start();
+  //LOGD("CHUNK MANAGER STOPPING LOADER");
+  //mLoader.stop();
+  mUpdatePool.stop();
 }
 
 int cChunkManager::getHeightAt(const Point3i &hPos)
 {
-  
   //std::lock_guard<std::mutex> lock(mChunkLock);
   Point3i cPos{hPos[0] / cChunk::sizeX, hPos[1] / cChunk::sizeY, hPos[2] / cChunk::sizeZ};
   Point3i bPos{hPos[0] % cChunk::sizeX, hPos[1] % cChunk::sizeY, hPos[2] % cChunk::sizeZ};
-  const int chunkIndex = index(getArrayPos(cPos - mMinChunk));
+  //const int chunkIndex = index(getArrayPos(cPos - mMinChunk));
   /*
     cChunk *chunk = mChunks[chunkIndex].chunk;
     while(!chunk)
@@ -175,115 +108,152 @@ int cChunkManager::getHeightAt(const Point3i &hPos)
   return cPos[2] * cChunk::sizeZ + 2;
 }
 
-Point3i cChunkManager::getArrayPos(const Point3i &cp) const
-{ // convert position relative to center (starting at mMinChunk) to raw 3d array offset
-  return (cp + mCenterShift + mChunkDim) % mChunkDim;
-}
-Point3i cChunkManager::getRelativePos(const Point3i &ap) const
-{ // convert raw 3d array offset to center-relative position
-  return (ap - mCenterShift + mChunkDim) % mChunkDim;
-}
-
-
-static std::unordered_map<blockSide_t, std::array<cSimpleVertex, 4>> faceVertices
-  {
-    {blockSide_t::PX,
-	{cSimpleVertex(Point3f{1, 0, 0}, Vector3f{1, 0, 0}, Vector2f{0.0f, 0.0f} ),
-	   cSimpleVertex(Point3f{1, 1, 1}, Vector3f{1, 0, 0}, Vector2f{1.0f, 1.0f} ),
-	   cSimpleVertex(Point3f{1, 0, 1}, Vector3f{1, 0, 0}, Vector2f{0.0f, 1.0f} ),
-	   cSimpleVertex(Point3f{1, 1, 0}, Vector3f{1, 0, 0}, Vector2f{1.0f, 0.0f} ) } },
-      {blockSide_t::PY,
-	  {cSimpleVertex(Point3f{0, 1, 0}, Vector3f{0, 1, 0}, Vector2f{0.0f, 0.0f} ),
-	     cSimpleVertex(Point3f{1, 1, 1}, Vector3f{0, 1, 0}, Vector2f{1.0f, 1.0f} ),
-	     cSimpleVertex(Point3f{1, 1, 0}, Vector3f{0, 1, 0}, Vector2f{0.0f, 1.0f} ),
-	     cSimpleVertex(Point3f{0, 1, 1}, Vector3f{0, 1, 0}, Vector2f{1.0f, 0.0f} ) } },
-	{blockSide_t::PZ,
-	    {cSimpleVertex(Point3f{0, 0, 1}, Vector3f{0, 0, 1}, Vector2f{0.0f, 0.0f} ),
-	       cSimpleVertex(Point3f{1, 1, 1}, Vector3f{0, 0, 1}, Vector2f{1.0f, 1.0f} ),
-	       cSimpleVertex(Point3f{0, 1, 1}, Vector3f{0, 0, 1}, Vector2f{0.0f, 1.0f} ),
-	       cSimpleVertex(Point3f{1, 0, 1}, Vector3f{0, 0, 1}, Vector2f{1.0f, 0.0f} ) } },
-	  {blockSide_t::NX,
-	      {cSimpleVertex(Point3f{0, 0, 0}, Vector3f{-1, 0, 0}, Vector2f{0.0f, 0.0f} ),
-		 cSimpleVertex(Point3f{0, 1, 1}, Vector3f{-1, 0, 0}, Vector2f{1.0f, 1.0f} ),
-		 cSimpleVertex(Point3f{0, 1, 0}, Vector3f{-1, 0, 0}, Vector2f{0.0f, 1.0f} ),
-		 cSimpleVertex(Point3f{0, 0, 1}, Vector3f{-1, 0, 0}, Vector2f{1.0f, 0.0f} ) } },
-	    {blockSide_t::NY,
-		{cSimpleVertex(Point3f{0, 0, 0}, Vector3f{0, -1, 0}, Vector2f{0.0f, 0.0f} ),
-		   cSimpleVertex(Point3f{1, 0, 1}, Vector3f{0, -1, 0}, Vector2f{1.0f, 1.0f} ),
-		   cSimpleVertex(Point3f{0, 0, 1}, Vector3f{0, -1, 0}, Vector2f{0.0f, 1.0f} ),
-		   cSimpleVertex(Point3f{1, 0, 0}, Vector3f{0, -1, 0}, Vector2f{1.0f, 0.0f} ) } },
-	      {blockSide_t::NZ,
-		  {cSimpleVertex(Point3f{0, 0, 0}, Vector3f{0, 0, -1}, Vector2f{0.0f, 0.0f} ),
-		     cSimpleVertex(Point3f{1, 1, 0}, Vector3f{0, 0, -1}, Vector2f{1.0f, 1.0f} ),
-		     cSimpleVertex(Point3f{1, 0, 0}, Vector3f{0, 0, -1}, Vector2f{0.0f, 1.0f} ),
-		     cSimpleVertex(Point3f{0, 1, 0}, Vector3f{0, 0, -1}, Vector2f{1.0f, 0.0f} ) } } };
-
-
-static std::array<unsigned int, 6> faceIndices = { 0, 1, 2, 3, 1, 0 };
-
 void cChunkManager::cleanupGL()
 {
-  //std::cout << "CHUNK MANAGER CLEANUPGL\n";
+  delete mBlockShader;
+  mTexAtlas->destroy();
+  delete mTexAtlas;
+  
   std::lock_guard<std::mutex> lock(mChunkLock);
-  for(auto &c : mChunks)
-    { c->mesh.cleanupGL(); }
+  for(int x = 0; x < mChunkDim[0]; x++)
+    for(int y = 0; y < mChunkDim[1]; y++)
+      for(int z = 0; z < mChunkDim[2]; z++)
+        { mChunks[Point3i{x,y,z}]->cleanupGL(); }
 }
 
-void cChunkManager::initGL(cShader *shader)
+void cChunkManager::initGL(QObject *qParent)
 {
-  //std::cout << "CHUNK MANAGER INITGL\n";
-  std::lock_guard<std::mutex> lock(mChunkLock);
-  for(auto &c : mChunks)
-    { c->mesh.initGL(shader); }
-}
-
-void cChunkManager::renderSimple(cShader *shader, Matrix4 pvm)
-{
-  //std::cout << "CHUNK MANAGER RENDERING\n";
-  //std::lock_guard<std::mutex> lock(mChunkLock);
-  shader->setUniform("pvm", pvm);
-  for(int i = 0; i < mChunks.size(); i++)
+  // load shader
+  mBlockShader = new cShader(qParent);
+  if(!mBlockShader->loadProgram("./shaders/simpleBlock.vsh", "./shaders/simpleBlock.fsh",
+                                {"posAttr", "normalAttr", "texCoordAttr"}, {"pvm", "uTex"} ))
     {
-      ChunkData *c = mChunks[i];
-      //if(!c->processing.exchange(true))
-      {
-        //if(!c->processing.exchange(true))
-        //{
-            
-            if(mChunks[i]->meshDirty)
-              { // need mesh update
-                mChunks[i]->mesh.detachData();
-                updateMesh(mChunks[i], mChunks[i]->chunk->pos());
-                mChunks[i]->meshDirty = false;
-              }
-            
-            if(!c->mesh.initialized())
-              { c->mesh.initGL(shader); }
-            c->mesh.render(shader);
-            c->processing.store(false);
-            // }
-      }
+      LOGE("Simple block shader failed to load!");
     }
+  
+  mBlockShader->bind();
+  mBlockShader->setUniform("uTex", 0);
+  mBlockShader->release();
+
+  // load block textures
+  mTexAtlas = new cTextureAtlas(qParent, ATLAS_BLOCK_SIZE);
+  if(!mTexAtlas->create("./res/texAtlas.png"))
+    {
+      LOGE("Failed to load texture atlas!");
+    }
+
+  std::lock_guard<std::mutex> lock(mChunkLock);
+  for(int x = 0; x < mChunkDim[0]; x++)
+    for(int y = 0; y < mChunkDim[1]; y++)
+      for(int z = 0; z < mChunkDim[2]; z++)
+        {
+          mChunks[Point3i{x,y,z}]->initGL(mBlockShader);
+        }
 }
+
+void cChunkManager::render(const Matrix4 &pvm)
+{
+  /*
+  { // clean up and delete old chunks
+    std::lock_guard<std::mutex> lock(mDeleteChunkLock);
+    //LOGD("Deleting old chunks...");
+    while(mDeleteChunks.size() > 0)
+      {
+        int cHash = mDeleteChunks.front();
+        mDeleteChunks.pop();
+        
+        mChunks[cHash]->unsetNeighbors();
+        mInactiveChunks.push(mChunks[cHash]);
+        mChunks.erase(cHash);
+      }
+  }
+
+  // gather new chunks
+  std::vector<cChunk*> newChunks;
+  newChunks.reserve(mNewChunks.size());
+  {
+    //LOGD("Gathering new chunks...");
+    std::lock_guard<std::mutex> lock(mNewChunkLock);
+    while(mNewChunks.size() > 0)
+      {
+        newChunks.push_back(mNewChunks.front());
+        mNewChunks.pop();
+      }
+  }
+
+  // initialize new chunks
+  //LOGD("Initializing new chunks...");
+
+  for(auto chunk : newChunks)
+    {
+      //LOGD("Setting chunk neighbors...");
+      Point3i cp = chunk->pos();
+      int cHash = hashChunk(chunk->pos());
+
+      for(int i = 0; i < 6; i++)
+        {
+          int c2Hash = hashChunk(chunk->pos() + nv[i]);
+          auto iter = mChunks.find(c2Hash);
+          if(iter != mChunks.end())
+            {
+              //chunk->setNeighbor((normal_t)i, iter->second);
+              //iter->second->setNeighbor((normal_t)((i+3)%6), chunk);
+              //iter->second->setMeshDirty(true);
+            }
+        }
+    }
+  
+  for(auto chunk : newChunks)
+    {
+      chunk->initGL(mBlockShader);
+      chunk->setMeshDirty(false);
+      mChunks.emplace(hashChunk(chunk->pos()), chunk);
+    }
+  */
+
+  
+  //LOGD("Rendering chunks...");
+  // render all available chunks
+  mBlockShader->bind();
+  mTexAtlas->bind();
+  mBlockShader->setUniform("pvm", pvm);
+  //LOGD("RENDERING %d CHUNKS", renderChunks.size());
+  {
+    std::lock_guard<std::mutex> lock(mChunkLock);
+    for(int x = 0; x < mChunkDim[0]; x++)
+      for(int y = 0; y < mChunkDim[1]; y++)
+        for(int z = 0; z < mChunkDim[2]; z++)
+          {
+            cChunk *chunk = mChunks[Point3i{x,y,z}];
+            //if(chunk->isLoaded())
+              {
+                if(!chunk->meshUploaded() && !chunk->meshDirty())
+                  {
+                    //chunk->updateMesh();
+                    chunk->uploadMesh();
+                    chunk->setMeshUploaded(true);
+                  }
+                //else if(chunk->meshDirty())
+                //{
+                //  chunk->updateMesh();
+                //  chunk->uploadMesh();
+                //  chunk->setMeshUploaded(true);
+                //}
+                chunk->render();
+              }
+          }
+  }
+  mBlockShader->release();
+  mTexAtlas->release();
+}
+
 /*
-  void cChunkManager::renderComplex(cShader *shader, Matrix4 pvm)
-  {
-  shader->setUniform("pvm", pvm);
-  for(int i = 0; i < mComplexMeshes.size(); i++)
-  {
-  shader->setUniform("uBlockType", (int)complexType(i) - 1);
-  mComplexMeshes[i].render(shader);
-  }
-  }
-*/
-
-
 void cChunkManager::clearMesh(int chunkIndex)
 {
-  mChunks[chunkIndex]->mesh.getVertices().clear();
-  mChunks[chunkIndex]->mesh.getIndices().clear();
+  //mChunks[chunkIndex]->mesh.getVertices().clear();
+  //mChunks[chunkIndex]->mesh.getIndices().clear();
 }
-
+*/
 // void cChunkManager::updateMesh(int chunkIndex)
 // {
 //   ChunkData &chunk = mChunks[chunkIndex];
@@ -293,140 +263,94 @@ void cChunkManager::clearMesh(int chunkIndex)
 //     }
 // }
 
-void cChunkManager::updateMesh(ChunkData *chunk, const Point3i &chunkPos)
-{
-  //Point3i chunkPos = chunk.chunk->pos();
-  //std::cout << "Updating mesh for chunk --> " << chunkPos << "\n";
-
-  // recompile mesh
-  std::vector<cSimpleVertex> *vertices = &chunk->mesh.getVertices();
-  std::vector<unsigned int> *indices = &chunk->mesh.getIndices();
-  vertices->clear();
-  indices->clear();
+// void cChunkManager::requestRange(const Point3i &min, const Point3i &max)
+// {
   
-  const Point3i chunkOffset = (chunkPos *
-			       Point3i{cChunk::sizeX, cChunk::sizeY, cChunk::sizeZ} );
-  // iterate over the chunk's blocks and compile all face vertices.
-  for(int bx = 0; bx < cChunk::sizeX; bx++)
-    for(int by = 0; by < cChunk::sizeY; by++)
-      for(int bz = 0; bz < cChunk::sizeZ; bz++)
-	{
-	  const cBlock *block = chunk->chunk->at(bx, by, bz);
-	  if(block->active() && isSimpleBlock(block->type))
-	    {
-	      for(auto &f : faceVertices)
-		{ // check if each face direction is active
-		  if((bool)(block->activeSides & f.first))
-		    {
-		      const unsigned int numVert = vertices->size();
-		      for(auto v : f.second)
-			{
-			  vertices->emplace_back(v.pos + chunkOffset + Point3i{bx,by,bz},
-						 v.normal,
-						 v.texcoord,
-						 (int)block->type - 1);
-			}
-		      for(auto i : faceIndices)
-			{ indices->push_back(numVert + i); }
-		    }			      
-		}
-	    }
-	  // TODO: Complex blocks
-	}
-  chunk->mesh.setUpdate();
+// }
+
+void cChunkManager::updateWorker(int tid)
+{ // update dirty meshes
+  
+  std::vector<cChunk*> loadChunks;
+  std::vector<cChunk*> meshChunks;
+  std::vector<cChunk*> saveChunks;
+  {
+    std::lock_guard<std::mutex> lock(mChunkLock);
+    
+    for(int x = 0; x < mChunkDim[0]; x++)
+      for(int y = 0; y < mChunkDim[1]; y++)
+        for(int z = 0; z < mChunkDim[2]; z++)
+          {
+            if((x + y + z) % mUpdatePool.numThreads() == tid)
+              {
+                cChunk *chunk = mChunks[Point3i{x,y,z}];
+                if(!chunk->isLoaded())
+                  { loadChunks.push_back(chunk); }
+                else if(chunk->meshDirty())
+                  { meshChunks.push_back(chunk); }
+                else if(chunk->isDirty())
+                  { saveChunks.push_back(chunk); }
+              }
+          }
+  }
+  for(auto chunk : loadChunks)
+    {
+      mLoader.loadDirect(chunk);
+      chunk->updateBlocks();
+      mNumLoaded++;
+      chunk->updateMesh();
+      chunk->setLoaded(true);
+      chunk->setMeshDirty(false);
+    }
+
+  for(auto chunk : meshChunks)
+    {
+      chunk->updateMesh();
+      chunk->setMeshDirty(false);
+    }
+  
+  for(auto chunk : saveChunks)
+    {
+      mLoader.saveDirect(chunk);
+      chunk->setDirty(false);
+    }
+
 }
 
 void cChunkManager::update()
 {
-
-}
-  
-void cChunkManager::updateChunks(int id)
-{ // update dirty meshes
-    
-  auto now = std::chrono::steady_clock::now();
-  static auto last = now;
-  mSaveTimer += std::chrono::duration_cast<std::chrono::microseconds>(now - last).count() / 1000000.0;
-  bool save = false;
-  if(mSaveTimer >= WRITE_FREQUENCY)
-    {
-      mSaveTimer = 0.0;
-      save = true;
-      last = now;
-    }
-
-  //std::lock_guard<std::mutex> lock(mChunkLock);
-  std::vector<uint8_t> chunkData;
-
-  int threadData = mChunks.size() / mPool.numThreads();
-  int threadStart = id * threadData;
-  int threadEnd = threadStart + threadData;
-  
-  for(int i = threadStart; i < threadEnd; i++)
-    {
-      if(!mChunks[i]->processing.exchange(true))
-        { // chunk is now reserved for processing on this thread.
-          const Point3i relPos = getRelativePos(unflattenIndex(i));
-          Point3i cp = mMinChunk + relPos;
-          if(mChunks[i]->active)
-            { // chunk is (or was) actively loaded
-              if(mChunks[i]->chunk->dirty())
-                { // need to save
-                  if(save || mChunks[i]->unload)
-                    { // save right now
-                      if(!mLoader.save(mChunks[i]->chunk))
-                        {
-                          LOGE("Failed to save chunk!");
-                          continue;
-                        }
-                      mChunks[i]->chunk->setClean();
-                    }
-                }
-              if(mChunks[i]->unload)
-                { // unload chunk
-                  mChunks[i]->active = false;
-                  mNumLoaded--;
-                }
-              else if(mChunks[i]->meshDirty)
-                { // need mesh update
-                  //mChunks[i]->mesh.detachData();
-                  //updateMesh(mChunks[i], cp);
-                  //mChunks[i]->meshDirty = false;
-                }
-            }
-        
-          if(!mChunks[i]->active)
+  /*
+  std::vector<chunkPtr_t> unload;
+  {
+    std::lock_guard<std::mutex> lock(mChunkLock);
+    for(auto c : mChunks)
+      {
+        Point3i cPos = c->pos();
+        if(cPos[0] < mMinChunk[0] || cPos[1] > mMaxChunk[0] ||
+           cPos[0] < mMinChunk[0] || cPos[1] > mMaxChunk[0] ||
+           cPos[0] < mMinChunk[0] || cPos[1] > mMaxChunk[0] )
           {
-            //std::cout << "LOADING CHUNK AT POS: " << cp << "\n";
-            mChunks[i]->chunk->setWorldPos(cp);
-            if(!mLoader.load(mChunks[i]->chunk))
-              {
-                //std::cout << "GEN TERRAIN --> " << mChunks[i]->chunk->pos() << "\n";
-                chunkData.resize(cChunk::totalSize * cBlock::dataSize);
-                generateChunk(mChunks[i]->chunk->pos(),
-                              terrain_t::PERLIN, chunkData );
-                //std::cout << "DATA SIZE: --> " << chunkData.size() << "\n";
-                mChunks[i]->chunk->deserialize(&chunkData[0], chunkData.size());
-                //std::cout << "Deserialize complete!\n";
-              }
-            else
-              {
-                //std::cout << "LOADED\n";
-              }
-            //std::cout << "Setting clean/...\n";
-            mChunks[i]->chunk->setClean();
-            mChunks[i]->meshDirty = true;
-            mChunks[i]->unload = false;
-            mChunks[i]->active = true;
-            mNumLoaded++;  
-            //std::cout << "Setting clean/...\n";            
-            //std::cout << "Index: " << i << "\n";
-            mChunks[i]->processing.store(false);
+            int cHash = hashChunk(cPos);
+            unload.push_back(mChunks[cHash]);
+            mChunks.erase(cHash);
           }
-        }
-      // done processing
-      //mChunkCv.notify_one();
-    }
+      }
+  }
+
+  for(auto c : unload)
+    {
+      int cHash = hashChunk(cPos);
+      {
+        std::lock_guard<std::mutex> lock(mMeshLock);
+        cMesh *mesh = mMeshes[cHash];
+        mMeshes.erase(cHash);
+      }
+      delete mesh;
+      
+      if(c->isDirty())
+        { mFileLoader.saveDirect(c); }
+      delete c;
+      }*/
 }
 
 Point3i cChunkManager::minChunk() const
@@ -436,48 +360,29 @@ Point3i cChunkManager::maxChunk() const
 
 void cChunkManager::setRadius(const Vector3i &loadRadius)
 {
-  /*
-    std::cout << "CHUNK MANAGER SETTING RADIUS\n";
-    std::lock_guard<std::mutex> lock(mChunkLock);
-  
-    Vector3i chunkDim = loadRadius * 2 + 1;
-    Vector3i overlapSize({std::min(chunkDim[0], mChunkDim[0]),
-    std::min(chunkDim[1], mChunkDim[1]),
-    std::min(chunkDim[2], mChunkDim[2]) });
-    Point3i offset = (chunkDim - mChunkDim) / 2;
-  
-    // copy relevant pointers to new chunk array
-    std::vector<ChunkData*> newArr(chunkDim[0] * chunkDim[1] * chunkDim[2], nullptr);
-    //std::vector<DataRange*> rangeArr(mChunkDim[0]*mChunkDim[1]*mChunkDim[2], nullptr);
-    for(int cx = 0; cx < overlapSize[0]; cx++)
-    {
-    for(int cy = 0; cy < overlapSize[1]; cy++)
-    {
-    for(int cz = 0; cz < overlapSize[2]; cz++)
-    {
-    const int oldIndex = index((offset[0] < 0 ? cx - offset[0] : cx),
-    (offset[1] < 0 ? cy - offset[1] : cy),
-    (offset[2] < 0 ? cz - offset[2] : cz) );
-    const int newIndex = index((offset[0] < 0 ? cx : cx + offset[0]),
-    (offset[1] < 0 ? cy : cy + offset[1]),
-    (offset[2] < 0 ? cz : cz + offset[2]),
-    chunkDim[0], chunkDim[2] );
-    //std::lock_guard<std::mutex> clock(mChunks[oldIndex]->lock);
-    newArr[newIndex] = mChunks[oldIndex];
-    }
-    }
-    }
-
-    // update class parameters
-    std::lock_guard<std::mutex> clock(mChunkLock);
-    mLoadRadius = loadRadius;
-    mChunkDim = loadRadius * 2 + 1;
-    mMinChunk = mCenter - mLoadRadius;
-    mMaxChunk = mCenter + mLoadRadius;
-    mChunks = newArr;
-  */
+  mLoadRadius = loadRadius;
+  mChunkDim = loadRadius * 2 + 1;
+  mMinChunk = mCenter - mLoadRadius;
+  mMaxChunk = mCenter + mLoadRadius;
 }
 
+// templated sign function
+template <typename T> int sgn(T val) {
+  return (T(0) < val) - (val < T(0));
+}
+
+void cChunkManager::setCenter(const Point3i &chunkCenter)
+{
+  std::lock_guard<std::mutex> lock(mChunkLock);
+  const Vector3i diff = chunkCenter - mCenter;
+
+  LOGD("Rotating chunks --> %d,%d,%d", diff[0], diff[1], diff[2]);
+  
+  mCenter = chunkCenter;
+  mMinChunk = mCenter - mLoadRadius;
+  mMaxChunk = mCenter + mLoadRadius;
+  mChunks.rotate(diff);
+}
 
 
 Point3i cChunkManager::chunkPoint(const Point3i &worldPos) const
@@ -493,52 +398,20 @@ Vector3i cChunkManager::getRadius() const
   return mLoadRadius;
 }
 
-void cChunkManager::setCenter(const Point3i &chunkCenter)
-{
-  Point3i diff = chunkCenter - mCenter;
-  if(diff[0] == 0 && diff[1] == 0 && diff[2] == 0)
-    { return; }
-   
-  //std::cout << "Center diff: " << diff << "\n";
-  //std::cout << "mChunks.size() --> " << mChunks.size() << "\n";
-  mCenterShift = (mCenterShift + diff) % mChunkDim;
-  mCenter = chunkCenter;
-  mMinChunk = mCenter - mLoadRadius;
-  mMaxChunk = mCenter + mLoadRadius;
 
-  for(int i = 0; i < mChunks.size(); i++)
+
+
+
+
+void chunkLoadCallback(chunkPtr_t chunk)
+{
+  /*
+    int cHash = hashChunk(chunk->pos());
     {
-      {
-        //std::unique_lock<std::mutex> lock(mChunkLock);
-        //mChunkCv.wait(lock, [this, i](){ return !mChunks[i]->processing.exchange(true); });
-        //std::cout << "CENTER LOOP\n";
-        // chunk is now reserved for processing on this thread.
-        if(mChunks[i]->active)
-          {
-            const Point3i arrayPos = unflattenIndex(i);
-            const Point3i relPos = getRelativePos(arrayPos);
-            //const Point3i relPos = getRelativePos(mChunks[i]->chunk->pos() - mMinChunk);
-            //std::cout << "CHUNK " << i << ": " << arrayPos << " | " << relPos << "\n";
-          
-            // check if block has gone out of view
-            if((diff[0] < 0 && relPos[0] <= -diff[0]-1) ||
-               (diff[0] > 0 && relPos[0] >= mChunkDim[0]-diff[0]) ||
-               (diff[1] < 0 && relPos[1] <= -diff[1]-1) ||
-               (diff[1] > 0 && relPos[1] >= mChunkDim[1]-diff[1]) ||
-               (diff[2] < 0 && relPos[2] <= -diff[2]-1) ||
-               (diff[2] > 0 && relPos[2] >= mChunkDim[2]-diff[2]) )
-              {
-                //std::cout << "CHUNK " << i << ": " << relPos << " | " << relPos+mMinChunk << "\n";
-                //std::cout << "ACTIVE: " << mChunks[i]->active << ", UNLOAD: " << mChunks[i]->unload << ", MESHDIRTY: " << mChunks[i]->meshDirty << ", DIRTY: " << mChunks[i]->chunk->dirty() << "\n";
-                  
-                mChunks[i]->unload.store(true);
-              }
-          }
-      }
-      // done processing
-      //mChunks[i]->processing.store(false);
-      //mChunkCv.notify_one();
+    std::lock_guard<std::mutex> lock(mChunkLock);
+    mChunks[cHash] = chunk;
     }
+  */
 }
 
 
@@ -551,77 +424,133 @@ int cChunkManager::numLoaded() const
 block_t cChunkManager::get(const Point3i &wp)
 {
   //std::cout << "CHUNK MANAGER GETTING BLOCK\n";
-  //std::lock_guard<std::mutex> lock(mChunkLock);
-  const int ci = index(getArrayPos(chunkPos(wp) - mMinChunk));
-  return ((ci >= 0 && ci < mChunks.size() && mChunks[ci]->active) ?
-          mChunks[ci]->chunk->get(cChunk::blockPos(wp)) :
-          block_t::NONE );
+  std::lock_guard<std::mutex> lock(mChunkLock);
+  //int cHash = hashChunk(chunkPos(wp));
+  //auto iter = mChunks.find(cHash);
+  const Point3i cp = chunkPos(wp);
+  if(cp[0] >= mMinChunk[0] && cp[0] <= mMaxChunk[0] &&
+     cp[1] >= mMinChunk[1] && cp[1] <= mMaxChunk[1] &&
+     cp[2] >= mMinChunk[2] && cp[2] <= mMaxChunk[2] )
+    {
+      return mChunks[cp - mMinChunk]->get(cChunkData::blockPos(wp));
+    }
+  else
+    {
+      return block_t::NONE;
+    }
 }
 void cChunkManager::set(const Point3i &wp, block_t type)
 {
-  //std::lock_guard<std::mutex> clock(mChunkLock);
-  //std::cout << "CHUNK MANAGER SETTING BLOCK\n";
-  const int ci = index(getArrayPos(chunkPos(wp) - mMinChunk));
-  if(ci >= 0 && ci < mChunks.size() && mChunks[ci]->active)
-    {
-      blockSide_t adj = mChunks[ci]->chunk->set(cChunk::blockPos(wp), type);
-      std::cout << "ADJACENT: " << (int)adj << "\n";
-      mChunks[ci]->meshDirty = true;
+  std::lock_guard<std::mutex> lock(mChunkLock);
+  //int cHash = hashChunk(chunkPos(wp));
+  //auto iter = mChunks.find(cHash);
+  //if(iter != mChunks.end())//ci >= 0 && ci < mChunks.size() && mChunks[ci]->chunk->isActive())
+  const Point3i cp = chunkPos(wp);
+  if(cp[0] >= mMinChunk[0] && cp[0] <= mMaxChunk[0] &&
+     cp[1] >= mMinChunk[1] && cp[1] <= mMaxChunk[1] &&
+     cp[2] >= mMinChunk[2] && cp[2] <= mMaxChunk[2] )
+  {
+      bool changed = mChunks[cp - mMinChunk]->set(cChunkData::blockPos(wp), type);
+      //iter->second->setMeshDirty(true);
+      //std::cout << "ADJACENT: " << (int)adj << "\n";
     }
 }
 void cChunkManager::clear()
 {
-  std::cout << "CHUNK MANAGER CLEARING\n";
-  std::lock_guard<std::mutex> lock(mChunkLock);
-  for(auto &c : mChunks)
-    {
-      {
-        std::unique_lock<std::mutex> lock(mChunkLock);
-        mChunkCv.wait(lock, [&c](){ return !c->processing.exchange(true); });
+  // std::cout << "CHUNK MANAGER CLEARING\n";
+  // std::lock_guard<std::mutex> lock(mChunkLock);
+  // for(auto &c : mChunks)
+  //   {
+  //     //{
+  //     //std::unique_lock<std::mutex> lock(mChunkLock);
+  //     //mChunkCv.wait(lock, [&c](){ return !c->processing.exchange(true); });
       
-        if(c->active && c->chunk->dirty())
-          {                
-            if(!mLoader.save(c->chunk))
-              { LOGE("Error saving chunk! (skipping)"); }
-            c->chunk->setClean();
-          }
-      }
-      c->processing.store(false);
-      mChunkCv.notify_one();
-    }
-  mChunks.clear();
+  //     if(c->active && c->chunk->dirty())
+  //       {                
+  //         if(!mLoader.save(c->chunk))
+  //           { LOGE("Error saving chunk! (skipping)"); }
+  //         c->chunk->setClean();
+  //       }
+  //     //}
+  //     //c->processing.store(false);
+  //     //mChunkCv.notify_one();
+  //   }
+  // mChunks.clear();
 }
 void cChunkManager::saveChunks()
 {
-  std::cout << "CHUNK MANAGER SAVING\n";
-  for(auto &c : mChunks)
-    {
-      {
-        std::unique_lock<std::mutex> lock(mChunkLock);
-        mChunkCv.wait(lock, [&c](){ return !c->processing.exchange(true); });
+  // std::cout << "CHUNK MANAGER SAVING\n";
+  // for(auto &c : mChunks)
+  //   {
+  //     //std::unique_lock<std::mutex> lock(mChunkLock);
+  //     //mChunkCv.wait(lock, [&c](){ return !c->processing.exchange(true); });
       
-        if(c->active && c->chunk->dirty())
-          {
-            if(!mLoader.save(c->chunk))
-              { LOGE("Error saving chunk! (skipping)"); }
-            c->chunk->setClean();
-          }
-      }
-      c->processing.store(false);
-      mChunkCv.notify_one();
-    }
+  //     if(c->active && c->chunk->dirty())
+  //       {
+  //         if(!mLoader.save(c->chunk))
+  //           { LOGE("Error saving chunk! (skipping)"); }
+  //         c->chunk->setClean();
+  //       }
+  //   }
 }
-
+  
+inline int cChunkManager::expand(int x)
+{
+  x                  &= 0x000003FF;
+  x  = (x | (x<<16)) &  0xFF0000FF;
+  x  = (x | (x<<8))  &  0x0F00F00F;
+  x  = (x | (x<<4))  &  0xC30C30C3;
+  x  = (x | (x<<2))  &  0x49249249;
+  return x;
+}
+inline int cChunkManager::unexpand(int x) const
+{
+  x                 &= 0x49249249;
+  x = (x | (x>>2))  &  0xC30C30C3;
+  x = (x | (x>>4))  &  0x0F00F00F;
+  x = (x | (x>>8))  &  0xFF0000FF;
+  x = (x | (x>>16)) &  0x000003FF;
+  return (x << 22) >> 22;
+}
+inline int cChunkManager::hashChunk(int cx, int cy, int cz)
+{ return expand(cx) + (expand(cy) << 1) + (expand(cz) << 2); }
+inline int cChunkManager::hashChunk(const Point3i &cp)
+{ return hashChunk(cp[0], cp[1], cp[2]); }
+inline int cChunkManager::unhashX(int cx) const
+{ return unexpand(cx); }
+inline int cChunkManager::unhashY(int cy) const
+{ return unexpand(cy); }
+inline int cChunkManager::unhashZ(int cz) const
+{ return unexpand(cz); }
+//inline Point3i cChunkManager::unhash(const Point3i &rp) const
+//{ return Point3i{unexpand(rp[0]), unexpand(rp[1]), unexpand(rp[2])}; }
 
 
 
 std::ostream& operator<<(std::ostream &os, const cChunkManager &cm)
 {
-  os << "<CHUNK MANAGER: " << cm.mChunks.size() << " chunks loaded>";
+  os << "<CHUNK MANAGER: " << cm.mChunkDim << " chunks loaded>";
   return os;
 }
-  
-// optimized functions for indexing
+
+
+
+
+
+
+
+
+inline int cChunkManager::chunkX(int wx) const
+{ return wx >> cChunkData::shiftX; }
+inline int cChunkManager::chunkY(int wy) const
+{ return wy >> cChunkData::shiftY; }
+inline int cChunkManager::chunkZ(int wz) const
+{ return wz >> cChunkData::shiftZ; }
+inline Point3i cChunkManager::chunkPos(const Point3i &wp) const
+{ return Point3i({chunkX(wp[0]), chunkY(wp[1]), chunkZ(wp[2])}); }
+
+/*
+// (OLD) optimized functions for indexing
 inline int cChunkManager::index(int cx, int cy, int cz, int sx, int sz)
 { return cx + sx * (cz + sz * cy); }
 inline int cChunkManager::index(int cx, int cy, int cz) const
@@ -631,12 +560,12 @@ inline int cChunkManager::index(const Point3i &cp) const
 
 inline Point3i cChunkManager::unflattenIndex(int index) const
 {
-  const int yMult = mChunkDim[0] * mChunkDim[2];
-  const int yi = index / yMult;
-  index -= yi * yMult;
-  const int zi = index / mChunkDim[0];
-  const int xi = index - zi * mChunkDim[0];
-  return Point3i({xi, yi, zi});
+const int yMult = mChunkDim[0] * mChunkDim[2];
+const int yi = index / yMult;
+index -= yi * yMult;
+const int zi = index / mChunkDim[0];
+const int xi = index - zi * mChunkDim[0];
+return Point3i({xi, yi, zi});
 }
 
 inline int cChunkManager::chunkX(int wx) const
@@ -663,183 +592,4 @@ inline int cChunkManager::adjNY(int ci) const
 inline int cChunkManager::adjNZ(int ci) const
 { return ci - mChunkDim[0]; }
 
-inline cBlock* cChunkManager::adjBlock(int ci, int bx, int by, int bz,
-				       blockSide_t side )
-{
-  switch(side)
-    {
-    case blockSide_t::PX:
-      return (bx < cChunk::sizeX-1 ?
-	      mChunks[ci]->chunk->at(bx+1, by, bz) :
-	      mChunks[adjPX(ci)]->chunk->at(0, by, bz) );
-      break;
-    case blockSide_t::PY:
-      return (by < cChunk::sizeY-1 ?
-	      mChunks[ci]->chunk->at(bx, by+1, bz) :
-	      mChunks[adjPY(ci)]->chunk->at(bx, 0, bz) );
-      break;
-    case blockSide_t::PZ:
-      return (bz < cChunk::sizeZ-1 ?
-	      mChunks[ci]->chunk->at(bx, by, bz+1) :
-	      mChunks[adjPZ(ci)]->chunk->at(bx, by, 0) );
-    case blockSide_t::NX:
-      return (bx > 0 ?
-	      mChunks[ci]->chunk->at(bx-1, by, bz) :
-	      mChunks[adjNX(ci)]->chunk->at(cChunk::sizeX-1, by, bz) );
-    case blockSide_t::NY:
-      return (by > 0 ?
-	      mChunks[ci]->chunk->at(bx, by-1, bz) :
-	      mChunks[adjNY(ci)]->chunk->at(bx, cChunk::sizeY-1, bz) );
-    case blockSide_t::NZ:
-      return (bz > 0?
-	      mChunks[ci]->chunk->at(bx, by, bz-1) :
-	      mChunks[adjNZ(ci)]->chunk->at(bx, by, cChunk::sizeZ-1) );
-    default:
-      return nullptr;
-    }
-}
-
-inline blockSide_t cChunkManager::adjActive(int ci, int bx, int by, int bz, blockSide_t cSides)
-{
-  blockSide_t active = blockSide_t::NONE;
-  for(int i = 0; i < 6; i++)
-    {
-      const blockSide_t s = (blockSide_t)(1 << i);
-      if((bool)(s & cSides))
-	{
-	  cBlock *block = adjBlock(ci, bx, by, bz, s);
-	  active |= (block && (block->active() && isSimpleBlock(block->type)) ? blockSide_t::NONE : s);
-	}
-    }
-  return active;
-}
-
-inline blockSide_t cChunkManager::adjacentLoaded(int ci) const
-{
-  blockSide_t adjacent = blockSide_t::NONE;
-  int ai = adjPX(ci);
-  adjacent |= ((ai >= 0 && ai < mChunks.size() && mChunks[ai]->chunk) ?
-	       blockSide_t::PX : blockSide_t::NONE );
-  ai = adjPY(ci);
-  adjacent |= ((ai >= 0 && ai < mChunks.size() && mChunks[ai]->chunk) ?
-	       blockSide_t::PY : blockSide_t::NONE );
-  ai = adjPZ(ci);
-  adjacent |= ((ai >= 0 && ai < mChunks.size() && mChunks[ai]->chunk) ?
-	       blockSide_t::PZ : blockSide_t::NONE );
-  ai = adjNX(ci);
-  adjacent |= ((ai >= 0 && ai < mChunks.size() && mChunks[ai]->chunk) ?
-	       blockSide_t::NX : blockSide_t::NONE );
-  ai = adjNY(ci);
-  adjacent |= ((ai >= 0 && ai < mChunks.size() && mChunks[ai]->chunk) ?
-	       blockSide_t::NY : blockSide_t::NONE );
-  ai = adjNZ(ci);
-  adjacent |= ((ai >= 0 && ai < mChunks.size() && mChunks[ai]->chunk) ?
-	       blockSide_t::NZ : blockSide_t::NONE );
-  return adjacent;
-}
-
-
-void cChunkManager::generateChunk(const Point3i &chunkPos, terrain_t genType,
-                                  std::vector<uint8_t> &dataOut)
-{
-  switch(genType)
-    {
-    case terrain_t::PERLIN:
-      double height = 1000.0*mNoise.noise((double)chunkPos[0]/100.0, (double)chunkPos[1]/100.0, (double)chunkPos[2]/100.0);
-      for(int x = 0; x < cChunk::sizeX; x++)
-        for(int y = 0; y < cChunk::sizeY; y++)
-          for(int z = 0; z < cChunk::sizeZ; z++)
-            {
-              int index = cChunk::index(x, y, z);
-
-              Point3i worldPos = Point3i{chunkPos[0]*cChunk::sizeX+x, chunkPos[1]*cChunk::sizeY + y, chunkPos[2]*cChunk::sizeZ + z}*4;
-              worldPos[2]*=3;
-              Point3i worldPos1 = worldPos / 4;
-              Point3i worldPos2 = worldPos * 2;
-              Point3i worldPos3 = worldPos / 8;
-              /*
-              cBlock block;
-              
-              if(chunkPos[2]*cChunk::sizeZ + z < 4)
-                block.type =  block_t::DIRT;//((x + y)%2 ? block_t::DIRT :  block_t::STONE);
-              else
-                block.type = block_t::NONE;
-              
-              std::memcpy((void*)&dataOut[index*cBlock::dataSize], (void*)&block.data, cBlock::dataSize);
-              
-              */
-              double n0 = mNoise.noise((double)worldPos[0]/cChunk::sizeX, (double)worldPos[1]/cChunk::sizeY, (double)worldPos[2]/cChunk::sizeZ);
-              double n1 = 10.0*mNoise.noise((double)worldPos1[1]/cChunk::sizeX, (double)worldPos1[2]/cChunk::sizeY, (double)worldPos1[0]/cChunk::sizeZ*2);
-              double n2 = 5.0*mNoise.noise((double)worldPos2[2]/cChunk::sizeX, (double)worldPos2[0]/cChunk::sizeY, (double)worldPos2[1]/cChunk::sizeZ*3);
-              double n3 = 5.0*mNoise.noise((double)worldPos3[2]/cChunk::sizeY, (double)worldPos3[0]/cChunk::sizeZ, (double)worldPos3[1]/cChunk::sizeX*4);
-              //std::1cout << height << "\n";
-              //n -= 200.0*height;
-              //std::cout << "X:" << x << ", Y:" << y << ", Z:" << z << " --> " << n << "\n";
-
-              //n += z*z/(std::abs(y) +1)/(std::abs(x) +1);
-
-
-
-              double n = n0 - 2.0*worldPos[2];//mNoise.noise(n0/20, n1/20, n2/20)*1000.0 - worldPos[2];//n0*12 + n1*15 + n2*8 + n3*5 - 10.0;// -  worldPos[2]*5;// : worldPos[2]*worldPos[1];// + n3*worldPos[0] + worldPos[1]*n2;
-              
-              cBlock b;
-              if(n < 0)
-                { b.type = block_t::NONE; }
-              else if(n < 75.0)
-                { b.type = block_t::GRASS; }
-              else if(n < 150.0)
-                { b.type = block_t::DIRT; }
-              else if(n < 350.0)
-                { b.type = block_t::SAND; }
-              else
-                { b.type = block_t::STONE; }
-              
-              std::memcpy((void*)&dataOut[index*cBlock::dataSize], (void*)&b.data, cBlock::dataSize);
-              
-            }
-      break;
-    }
-}
-
-
-
-
-/*
-// OLD HASHING FUNCTIONS
-  
-// NOTE: hash is invertible over domain (+/- 2^10)^3
-inline int cChunkManager::expand(int x) const
-{
-//  0000 0000 0000 0000 0000 0011 1111 1111 --> clamp to max value
-x                  &= 0x000003FF;
-//  1111 1111 0000 0000 0000 0000 1111 1111 --> separate upper 2 bits
-x  = (x | (x<<16)) &  0xFF0000FF;
-//  0000 1111 0000 0000 1111 0000 0000 1111 --> 
-x  = (x | (x<<8))  &  0x0F00F00F;
-//  1100 0011 0000 1100 0011 0000 1100 0011 --> 
-x  = (x | (x<<4))  &  0xC30C30C3;
-//  0100 1001 0010 0100 1001 0010 0100 1001 --> 
-x  = (x | (x<<2))  &  0x49249249;
-return x;
-}
-inline int cChunkManager::unexpand(int x) const
-{
-x                 &= 0x49249249;
-x = (x | (x>>2))  &  0xC30C30C3;
-x = (x | (x>>4))  &  0x0F00F00F;
-x = (x | (x>>8))  &  0xFF0000FF;
-x = (x | (x>>16)) &  0x000003FF;
-return (x << 22) >> 22;
-}
-
-inline int cChunkManager::chunkHash(int cx, int cy, int cz) const
-{ return expand(cx) + (expand(cy) << 1) + (expand(cz) << 2); }
-inline int cChunkManager::chunkHash(const Point3i &cp) const
-{ return chunkHash(cp[0], cp[1], cp[2]); }
-inline int cChunkManager::unhashX(int cx) const
-{ return unexpand(cx); }
-inline int cChunkManager::unhashY(int cy) const
-{ return unexpand(cy); }
-inline int cChunkManager::unhashZ(int cz) const
-{ return unexpand(cz); }
 */

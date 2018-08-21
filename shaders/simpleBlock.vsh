@@ -6,9 +6,11 @@ uniform mat4 pvm;
 layout(location = 0) in vec3 posAttr;
 layout(location = 1) in vec3 normalAttr;
 layout(location = 2) in vec3 texCoordAttr; // third element is block type
+layout(location = 3) in float lightAttr; // third element is block type
 
 smooth out vec3 normal;
 smooth out vec3 texCoord;
+smooth out float lighting;
 
 void main()
 {
@@ -16,4 +18,5 @@ void main()
   normal = normalAttr;
   
   texCoord = vec3(texCoordAttr);
+  lighting = lightAttr;
 }

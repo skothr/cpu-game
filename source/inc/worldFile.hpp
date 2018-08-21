@@ -3,6 +3,7 @@
 #pragma pack (push, 1)
 
 #include "terrain.hpp"
+#include "vector.hpp"
 #include <cstdint>
 
 #define REGION_SIZEX 16

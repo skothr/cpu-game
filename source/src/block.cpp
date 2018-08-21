@@ -32,5 +32,4 @@ int cBlock::serialize(uint8_t *dataOut) const
 void cBlock::deserialize(const uint8_t *dataIn, int bytes)
 {
   std::memcpy((void*)&data, (void*)dataIn, bytes);
-  //activeSides = blockSide_t::ALL;
 }

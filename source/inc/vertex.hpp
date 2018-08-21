@@ -22,10 +22,12 @@ struct cSimpleVertex
   Point3f pos;
   Vector3f normal;
   Vector3f texcoord;
+  float occlusion;
  
   cSimpleVertex() { }
-  cSimpleVertex(const Point3f &p, const Vector3f &n, const Vector2f &tex, int t = 0)
-    : pos(p), normal(n), texcoord{tex[0], tex[1], t}
+  cSimpleVertex(const Point3f &p, const Vector3f &n, const Vector2f &tex, int type=0,
+                float occlusion=0.0f)
+    : pos(p), normal(n), texcoord{tex[0], tex[1], type}, occlusion(occlusion)//occlusion)
       //cSimpleVertex(const Point3f &p, const Vector3f &n, const Vector2f &tex, int t = 0)
       //: pos(p), normal(n), texcoord{tex[0], tex[1], (float)t}
   { }

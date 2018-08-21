@@ -14,7 +14,7 @@ public:
   ~cThreadPool();
 
   void start();
-  void stop();
+  void stop(bool join = true);
 
   bool running() const;
   int numThreads() const { return mNumThreads; }

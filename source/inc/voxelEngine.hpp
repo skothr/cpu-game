@@ -3,6 +3,7 @@
 
 #include "input.hpp"
 #include "geometry.hpp"
+#include "block.hpp"
 #include <string>
 
 class cTimedThread;
@@ -17,12 +18,11 @@ class QObject;
 class cVoxelEngine
 {
 public:
-  
   cVoxelEngine(QObject *qParent = nullptr, int numThreads = 1, const std::string &worldName = "",
                uint32_t seed = 0);
   ~cVoxelEngine();
 
-  bool initGl();   // must be called from render thread
+  bool initGl(QObject *qparent);   // must be called from render thread
   void cleanUpGl(); // must be called from render thread
   void render();
 
@@ -44,6 +44,9 @@ public:
   ProjDesc getProjection() const;
   void setProjection(const ProjDesc &proj);
 
+  void setTool(block_t type);
+  void nextTool();
+  void prevTool();
   void sendInput(const InputData &data);
 
   cPlayer* getPlayer();
@@ -53,11 +56,6 @@ private:
   cGodPlayer *mPlayer = nullptr;  // PLAYER -- handles interface between the user and the world
   cTimedThread *mBlockUpdater = nullptr;
   cTimedThread *mPhysics = nullptr;
-  
-  // rendering
-  cShader *mSimpleShader = nullptr;
-  cShader *mComplexShader = nullptr;
-  cTextureAtlas *mTexAtlas = nullptr;
   
   Matrix4 mProjMat;
 

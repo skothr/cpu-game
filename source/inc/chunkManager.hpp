@@ -3,9 +3,9 @@
 
 #include "chunk.hpp"
 #include "chunkLoader.hpp"
-#include "mesh.hpp"
+#include "chunkMesh.hpp"
 #include "threadPool.hpp"
-#include "terrain.hpp"
+#include "chunkArray.hpp"
 
 #include <vector>
 #include <unordered_map>
@@ -29,130 +29,84 @@
 
 
 class cShader;
+class cTextureAtlas;
 
 class cChunkManager
 {
 public:
-  cChunkManager(const int numThreads, const Point3i &center, const Vector3i &loadRadius);
+
+  int getThread(const Point3i &cp);
+  
+  cChunkManager(int loadThreads, const Point3i &center, const Vector3i &loadRadius);
   ~cChunkManager();
 
-  bool setWorld(const std::string &worldName);
+  bool setWorld(std::string worldName, uint32_t seed = 0);
   void start();
   void stop();
-
-  Point3i getCenter() const;
-  Vector3i getRadius() const;
-
-  int getHeightAt(const Point3i &hPos);
-
-  void setSeed(uint32_t seed);
   
-  Point3i chunkPoint(const Point3i &worldPos) const;
+  void initGL(QObject *qparent);
+  void cleanupGL();
+  void render(const Matrix4 &pvm);
+
+  
   void setRadius(const Vector3i &loadRadius);
   void setCenter(const Point3i &newCenter);
-  int numLoaded() const;
+  Point3i getCenter() const;
+  Vector3i getRadius() const;
+  Point3i minChunk() const;
+  Point3i maxChunk() const;
   
   block_t get(const Point3i &wp);
   //cBlock* get(const Point3i &wp);
   void set(const Point3i &wp, block_t type);
+  int numLoaded() const;
+  int getHeightAt(const Point3i &hPos);
+  
   void clear();
   void saveChunks();
 
-  Point3i minChunk() const;
-  Point3i maxChunk() const;
-
-  void initGL(cShader *shader);
-  void cleanupGL();
-  void renderSimple(cShader *shader, Matrix4 pvm);
-  //void renderComplex(cShader *shader, Matrix4 pvm);
-
   void update();
-  void updateChunks(int id);
+  void updateMeshes(int id);
+  void loadCallback(chunkPtr_t &&chunk);
 
+  Point3i chunkPoint(const Point3i &worldPos) const;
   friend std::ostream& operator<<(std::ostream &os, const cChunkManager &set);
   
 private:
-  struct ChunkData
-  {
-    ChunkData(const Point3i &chunkPos)
-      : chunk(new cChunk(chunkPos)), mesh(), meshDirty(false), unload(false), active(false)
-    {
-      processing.store(false);
-    }
-    ~ChunkData()
-    { delete chunk; }
-    cChunk *chunk;
-    cMesh mesh;
-    //std::mutex lock;
-    std::atomic<bool> processing;
-    std::atomic<bool> meshDirty;
-    std::atomic<bool> unload;
-    std::atomic<bool> active;
-  };
-  std::vector<ChunkData*> mChunks;
-
-  std::condition_variable mChunkCv;
   std::mutex mChunkLock;
+  cChunkArray mChunks;
 
-  int mNumLoaded = 0;
+  std::atomic<int> mNumLoaded = 0;
   Point3i mCenter;
   Vector3i mLoadRadius;
   Vector3i mChunkDim;
   Point3i mMinChunk;
   Point3i mMaxChunk;
-  Point3i mCenterShift; // offsets mChunks when the center chunk changes.
   
-  double mSaveTimer = 0.0;
   cChunkLoader mLoader;
-  cThreadPool mPool;
-  //cThreadPool mMeshPool;
+  cThreadPool mUpdatePool;
 
-  cPerlinNoise mNoise;
-  uint32_t mSeed = 0;
-  
-  Point3i getArrayPos(const Point3i &cp) const;
-  Point3i getRelativePos(const Point3i &ap) const;
+  // rendering
+  cShader *mBlockShader = nullptr;
+  cTextureAtlas *mTexAtlas = nullptr;
 
-  void updateMeshWorker(int id);
   void updateWorker(int id);
-  void chunkLoadCallback(const Point3i &chunkPos);
-  void chunkSaveCallback(const Point3i &chunkPos);
+  void chunkLoadCallback(chunkPtr_t chunk);
   
-  void clearMesh(int chunkIndex);
-  //void updateMesh(int chunkIndex);
-  void updateMesh(ChunkData *chunk, const Point3i &chunkPos);
-
-  Point3i getShifted(const Point3i &cp) const;
-
-  // TODO: Move to terrain
-  void generateChunk(const Point3i &chunkPos, terrain_t genType,
-                     std::vector<uint8_t> &dataOut);
+  // optimized hashing functions
+  int expand(int x);
+  int unexpand(int x) const;
+  int hashChunk(int cx, int cy, int cz);
+  int hashChunk(const Point3i &cp);
+  int unhashX(int cx) const;
+  int unhashY(int cy) const;
+  int unhashZ(int cz) const;
+  Point3i unhashChunk(const Point3i &rp) const;
   
-  // optimized functions for indexing
-  static int index(int cx, int cy, int cz, int sx, int sz);
-  int index(int cx, int cy, int cz) const;
-  int index(const Point3i &cp) const;
-  Point3i unflattenIndex(int index) const;
   int chunkX(int wx) const;
   int chunkY(int wy) const;
   int chunkZ(int wz) const;
   Point3i chunkPos(const Point3i &wp) const;
-
-  int adjPX(int ci) const;
-  int adjPY(int ci) const;
-  int adjPZ(int ci) const;
-
-  int adjNX(int ci) const;
-  int adjNY(int ci) const;
-  int adjNZ(int ci) const;
-  int blockShiftX(int ci, int dx) const;
-  int blockShiftY(int ci, int dy) const;
-  int blockShiftZ(int ci, int dz) const;
-
-  cBlock* adjBlock(int ci, int bx, int by, int bz, blockSide_t side);
-
-  blockSide_t adjActive(int ci, int bx, int by, int bz, blockSide_t cSides);
-  blockSide_t adjacentLoaded(int ci) const;
 };
 
 

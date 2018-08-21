@@ -29,7 +29,7 @@ bool cTextureAtlas::create(const std::string &filePath)
   glBindTexture(GL_TEXTURE_2D_ARRAY, mTextureId);
   glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_REPEAT);
   glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_REPEAT);
-  glTexParameterf(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_NEAREST);
+  glTexParameterf(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
   glTexParameterf(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
   glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_GENERATE_MIPMAP, GL_TRUE);
     
@@ -42,7 +42,7 @@ bool cTextureAtlas::create(const std::string &filePath)
 
   LOGD("imgW: %d, imgH: %d, xb: %d, yb: %d", imgW, imgH, xBlocks, yBlocks);
   
-  glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_RGBA8, mBlockSize, mBlockSize, xBlocks * yBlocks);
+  glTexStorage3D(GL_TEXTURE_2D_ARRAY, 4, GL_RGBA8, mBlockSize, mBlockSize, xBlocks * yBlocks);
   glPixelStorei(GL_UNPACK_ROW_LENGTH, imgW);
   int i = 0;
   for(int r = 0; r < yBlocks; r++)

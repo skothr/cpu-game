@@ -1,132 +1,94 @@
 #ifndef CHUNK_HPP
 #define CHUNK_HPP
 
-#include "block.hpp"
+#include "chunkData.hpp"
+#include "chunkMesh.hpp"
 #include "vector.hpp"
-
-#include <array>
+#include <unordered_map>
 #include <string>
 #include <ostream>
+#include <atomic>
 
 // NOTE:
 //  - wx/wy/wz denotes block position within world
 //  - bx/by/bz denotes block position within chunk
 
+
 class cChunk
 {
-  friend class cChunkManager;
-  
 public:
-  static const int shiftX = 5;
-  static const int shiftY = 5;
-  static const int shiftZ = 5;
-  static const int sizeX = (1 << shiftX);
-  static const int sizeY = (1 << shiftY);
-  static const int sizeZ = (1 << shiftZ);
-  static const int totalSize = (sizeX * sizeY * sizeZ);
-  static const int yMult = sizeX * sizeZ;
-  static const int maskX = (sizeX - 1);
-  static const int maskY = (sizeY - 1);
-  static const int maskZ = (sizeZ - 1);
-
-  typedef std::array<cBlock, totalSize> data_t;
-
+  static const int sizeX = cChunkData::sizeX;
+  static const int sizeY = cChunkData::sizeY;
+  static const int sizeZ = cChunkData::sizeZ;
+  static const int totalSize = cChunkData::totalSize;
+  static const Point3i size;
+  
   cChunk();
   cChunk(const Point3i &worldPos);
-  cChunk(const Point3i &worldPos, const data_t &data);
-  
   cChunk(const cChunk &other);
+  ~cChunk();
 
-  void setNeighbor(normal_t side, cChunk *chunk);
-  void unsetNeighbor(normal_t side);
+  void setNeighbor(blockSide_t side, cChunk *chunk);
+  void unsetNeighbor(blockSide_t side);
+  void unsetNeighbors();
+  cChunk* getNeighbor(blockSide_t side);
 
-  void setWorldPos(const Point3i &newPos)
-  { mWorldPos = newPos; }
+  void setWorldPos(const Point3i &newPos);
+  
   Point3i pos() const;
   bool empty() const;
 
   cBlock* at(int bx, int by, int bz);
+  cBlock* at(Point3i bp);
   block_t get(int bx, int by, int bz) const;
   block_t get(const Point3i &bp) const;
-  //cBlock* get(int bx, int by, int bz);
-  data_t& data();
-  const data_t& data() const;
-
-  blockSide_t chunkEdge(int bx, int by, int bz) const;
   
-  blockSide_t set(int bx, int by, int bz, block_t type);
-  blockSide_t set(const Point3i &bp, block_t type);
-  void setData(const data_t &data);
-
-  void updateBlocks();
-  bool dirty() const;
-  void setClean();
-  void setDirty();
-
+  bool set(int bx, int by, int bz, block_t type);
+  bool set(const Point3i &bp, block_t type);
+  
   int serialize(uint8_t *dataOut) const;
   void deserialize(const uint8_t *dataIn, int bytes);
 
+  uint8_t getLighting(const Point3i &bp, const Point3i &vp, blockSide_t side);
+  void updateBlocks();
+
+  void initGL(cShader *shader);
+  void cleanupGL();
+  void render();
+  
+  void updateMesh();
+  void uploadMesh();
+  
+  // atomic functions for loading and saving
+  bool isLoaded() const;
+  void setLoaded(bool loaded);
+  bool isDirty() const;
+  void setDirty(bool dirty);
+  bool meshDirty() const;
+  void setMeshDirty(bool dirtyMesh);
+  bool meshUploaded() const;
+  void setMeshUploaded(bool uploaded);
+  
   std::string toString() const;
   friend std::ostream& operator<<(std::ostream &os, const cChunk &chunk);
   
-  static int index(int bx, int by, int bz);
-  static Point3i unflattenIndex(int index);
-  
 private:
-  data_t mData;
+  cChunkData mData;
+  cChunkMesh *mMesh;
+  std::vector<cSimpleVertex> mVert;
+  std::vector<unsigned int> mInd;
   Point3i mWorldPos;
-  bool mDirty = false;
+  std::unordered_map<blockSide_t, cChunk*> mNeighbors;
 
-  std::array<cChunk*, 6> mNeighbors;
-  inline void updateSides(int bx, int by, int bz, int bi);
-  inline void updateSides(int bx, int by, int bz);
-  inline void updateActive(int bx, int by, int bz, int bi);
-  inline void updateInactive(int bx, int by, int bz, int bi);
-
-  static int shiftPX(int bx);
-  static int shiftPY(int by);
-  static int shiftPZ(int bz);
-  static int shiftNX(int bx);
-  static int shiftNY(int by);
-  static int shiftNZ(int bz);
-  static int blockX(int wx);
-  static int blockY(int wy);
-  static int blockZ(int wz);
-  static Point3i blockPos(const Point3i &wp);
+  std::atomic<bool> mLoaded = false;  // chunk is being loaded
+  std::atomic<bool> mDirty = false;   // chunk has changed and needs to be saved
+  std::atomic<bool> mMeshDirty = true;   // chunk has changed and needs to be saved
+  std::atomic<bool> mMeshUploaded = false;   // mesh is rendered, but not uploaded to the GPU
+  
+  void updateLighting(int bx, int by, int bz);
+  
+  int index(const Point3i &bp);
 };
-
-// optimized functions for indexing
-inline int cChunk::index(int bx, int by, int bz)
-{ return bx + sizeX * (bz + sizeZ * by); }
-inline Point3i cChunk::unflattenIndex(int index)
-{
-  const int yi = index / yMult;
-  index -= yi * yMult;
-  const int zi = index / sizeX;
-  const int xi = index - zi * sizeX;
-  return Point3i{xi, yi, zi};
-}
-inline int cChunk::shiftPX(int bx)
-{ return bx + 1; }
-inline int cChunk::shiftPY(int by)
-{ return by + sizeX * sizeZ; }
-inline int cChunk::shiftPZ(int bz)
-{ return bz + sizeX; }
-inline int cChunk::shiftNX(int bx)
-{ return bx - 1; }
-inline int cChunk::shiftNY(int by)
-{ return by - sizeX * sizeZ; }
-inline int cChunk::shiftNZ(int bz)
-{ return bz - sizeX; }
-inline int cChunk::blockX(int wx)
-{ return wx & maskX; }
-inline int cChunk::blockY(int wy)
-{ return wy & maskY; }
-inline int cChunk::blockZ(int wz)
-{ return wz & maskZ; }
-inline Point3i cChunk::blockPos(const Point3i &wp)
-{ return Point3i({blockX(wp[0]), blockY(wp[1]), blockZ(wp[2])}); }
-
 
 
 #endif // CHUNK_HPP

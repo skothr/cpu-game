@@ -19,6 +19,7 @@ int main(int argc, char *argv[])
   bool test = false;
   std::string worldName = "";
   uint32_t seed = 0;
+  bool printWorld = false;
   //std::string genWorldFileOut = "";
   for(int i = 0; i < argc; i++)
     {
@@ -40,69 +41,18 @@ int main(int argc, char *argv[])
 	    case 't':
 	      test = true;
 	      break;
-              //case 'g':
-	      //genWorldFileOut = argv[++i];
-	      //break;
+            case 'p':
+              printWorld = true;
+              break;
 	    }
 	}
     }
 
   if(test)
-    {
-
-      cPerlinNoise n(123);
-
-      for(int x = -1000; x < 1000; x += 10)
-        for(int y = -1000; y < 1000; y += 10)
-          for(int z = -1000; z < 1000; z += 10)
-            { std::cout << (double)n.noise(x/1000.0, y/1000.0, z/1000.0)*1000.0 << "  "; }
-      std::cout << "\n\n";
-      return 0;
+    { // test stuff goes in here
       
-      /*
-      cMmapFile f;
-      LOGD("Opening...");
-      if(!f.open("res/test.bin", cMmapFile::INPUT | cMmapFile::OUTPUT))
-	{ exit(1); }
-
-      LOGD("Reading...");
-      char *buf = new char[32];
-
-      f.read(0, buf, 8);
-
-      LOGD("Done");
-      */
-    }
-
-  /*
-  if(genWorldFileOut != "")
-    {
-      cChunk chunk(Point3i{0,0,0});
-      for(int x = 0; x < cChunk::sizeX; x++)
-	{
-	  for(int y = 0; y < cChunk::sizeY; y++)
-	    {
-	      for(int z = 0; z < cChunk::sizeZ; z++)
-		{
-		  if(z == 0)
-		    {
-		      LOGD("Setting %d,%d,%d", x, y, z);
-		      chunk.set(x, y, z, block_t::DIRT);
-		    }
-		}
-	    }
-	}
-
-      LOGI("Chunk Size: %dx%dx%d", cChunk::sizeX, cChunk::sizeY, cChunk::sizeZ);
-      LOGI("Num chunks: %d", 1);
-      FileHeader header{{0,0,0,1}, cBlock::dataSize, terrain_t::PERLIN, 1};
-      writeWorldFile(genWorldFileOut, header, { &chunk });
       return 0;
     }
-  else
-    {
-  */
-
   QApplication app(argc, argv);
   cMainWindow window(nullptr, numThreads, worldName, seed);
   window.resize(1080, 1080);

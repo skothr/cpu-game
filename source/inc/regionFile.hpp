@@ -26,15 +26,17 @@ public:
   bool writeChunk(const cChunk *chunk);
   void close();
   
+  static std::string regionFileName(const Point3i &regionPos);
+  
 private:
   // region file stuff
   const Vector<uint8_t, 4> mVersion;
   std::atomic<uint32_t> mNextOffset;
   wData::Header mHeader;
+  std::array<std::vector<uint8_t>, CHUNKS_PER_REGION> mChunkData;
   std::array<wData::ChunkInfo, CHUNKS_PER_REGION> mChunkInfo;
   std::array<std::atomic<bool>, CHUNKS_PER_REGION> mChunkStatus;
   Point3i mRegionPos;
-  std::vector<uint8_t> mChunkData;
 
   // mmap file stuff
   std::string mFilePath;

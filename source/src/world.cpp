@@ -1,20 +1,18 @@
 #include "world.hpp"
 #include "timing.hpp"
 #include <unistd.h>
+#include <random>
 
-std::array<cModelObj, BLOCK_COMPLEX_COUNT> cWorld::mModels;
-std::array<cSimpleVertex, FACE_VERTICES> cWorld::mFaceVertices[(int)normal_t::COUNT];
-std::array<unsigned int, FACE_INDICES> cWorld::mFaceIndices;
-
-cWorld::cWorld(const std::string &worldName, int numThreads,
+cWorld::cWorld(const std::string &worldName, uint32_t seed, int loadThreads,
 	       const Point3i &center, const Vector3i &chunkRadius )
-  : mChunks(numThreads, center, chunkRadius)
+  : mChunks(loadThreads, center, chunkRadius)
 //: mNumThreads(numThreads), mThreadChunks(numThreads),
     //mThreadFaces(numThreads), mThreadComplex(numThreads)
 {
   //mThreads.reserve(mNumThreads);
   //for(int i = 0; i < mNumThreads; i++)
   //  { mThreads.emplace_back(&cWorld::chunkWorker, this, i); }
+  
   if(!mChunks.setWorld(worldName))
     {
       exit(1);
@@ -64,12 +62,6 @@ bool cWorld::set(const Point3i &worldPos, block_t type)
     { return false; }
 }
 
-
-void cWorld::setSeed(uint32_t seed)
-{
-  mChunks.setSeed(seed);
-}
-
 cChunk* cWorld::getChunk(const Point3i &worldPos)
 {
   LOGW("GETCHUNK CALLED --> REMOVE!!");
@@ -86,17 +78,17 @@ static float intbound(float s, float ds)
 {
   return (ds > 0 ?
 	  (std::floor(s) + 1 - s) / std::abs(ds) :
-	  (ds < 0 ? (s - std::floor(s)) / std::abs(ds) : 0));
+	  (ds <= 0 ? (s - std::floor(s)) / std::abs(ds) : 0));
 }
 
 bool cWorld::rayCast(const Point3f &p, const Vector3f &d, float radius,
 		     block_t &blockOut, Point3i &posOut, Vector3i &faceOut )
 {
   //LOGD("RAYCASTING");
-  if(d[0] == 0 && d[1]==0 && d[2]==0)
+  if(d[0] == 0 && d[1] == 0 && d[2] == 0)
     { return false; }
   
-  Vector3f step{  (d[0] > 0 ? 1 : (d[0] < 0 ? -1 : 1)),
+  Vector3i step{  (d[0] > 0 ? 1 : (d[0] < 0 ? -1 : 1)),
 		  (d[1] > 0 ? 1 : (d[1] < 0 ? -1 : 1)),
 		  (d[2] > 0 ? 1 : (d[2] < 0 ? -1 : 1)) };
   Vector3f tMax{intbound(p[0], d[0]), intbound(p[1], d[1]), intbound(p[2], d[2])};
@@ -173,6 +165,76 @@ bool cWorld::rayCast(const Point3f &p, const Vector3f &d, float radius,
 }
 
 
+
+void cWorld::initGL(QObject *qparent)
+{
+  mChunks.initGL(qparent);
+}
+
+void cWorld::cleanupGL()
+{
+  mChunks.cleanupGL();
+}
+
+void cWorld::render(Matrix4 pvm)
+{
+  mChunks.render(pvm);
+}
+
+
+void cWorld::update()
+{
+  mChunks.update();
+
+  //mPlayer.update(dt);
+}
+
+bool cWorld::readyForPlayer() const
+{
+  return (mChunks.numLoaded() > 0);
+}
+
+Point3f cWorld::getStartPos(const Point3i &pPos)
+{
+  return Point3f{pPos[0], pPos[1], pPos[2]};//mChunks.getHeightAt(pPos)};
+}
+\
+
+Point3i cWorld::chunkPos(const Point3f &worldPos) const
+{
+  return mChunks.chunkPoint(Point3i{std::floor(worldPos[0]),
+				    std::floor(worldPos[1]),
+				    std::floor(worldPos[2]) });
+}
+
+void cWorld::setCenter(const Point3i &chunkCenter)
+{
+  mChunks.setCenter(chunkCenter);
+}
+Point3i cWorld::getCenter() const
+{ return mChunks.getCenter(); }
+
+void cWorld::startLoading()
+{
+  mChunks.start();
+  //usleep(1000000);
+}
+void cWorld::stopLoading()
+{
+  mChunks.stop();
+}
+
+
+
+
+
+
+
+
+
+
+
+/*
 void cWorld::loadModels()
 {
   mModels[complexIndex(block_t::DEVICE)] = cModelObj("./res/device.obj");
@@ -242,7 +304,6 @@ void cWorld::loadModels()
   //mFaceIndices[1] = { 0, 1, 2, 3, 1, 0 }; // negative normals
 }
 
-
 void cWorld::modelInitGL(cShader *complexShader)
 {
   for(auto &m : mModels)
@@ -253,248 +314,4 @@ void cWorld::modelCleanupGL()
   for(auto &m : mModels)
     { m.cleanupGL(); }
 }
-
-
-void cWorld::initGL(cShader *simpleShader)//, cShader *complexShader)
-{
-  mChunks.initGL(simpleShader);
-  /*
-  simpleShader->bind();
-  for(auto &m : mSimpleMeshes)
-    { m.initGL(simpleShader); }
-  simpleShader->release();
-  
-  complexShader->bind();
-  for(auto &m : mComplexMeshes)
-    { m.initGL(complexShader); }
-  complexShader->release();
-    
-  mInitialized = true;
-  mNeedUpdate = true;
-  */
-}
-
-void cWorld::cleanupGL()
-{
-  //for(auto &m : mSimpleMeshes)
-  //  { m.cleanupGL(); }
-  //for(auto &m : mComplexMeshes)
-  //  { m.cleanupGL(); }
-
-  mChunks.cleanupGL();
-  //mInitialized = false;
-}
-
-void cWorld::renderSimple(cShader *shader, Matrix4 pvm)
-{
-  //LOGD("WORLD RENDERING");
-  mChunks.renderSimple(shader, pvm);
-  /*
-  shader->setUniform("pvm", pvm);
-  for(int i = 0; i < mSimpleMeshes.size(); i++)
-    {
-      shader->setUniform("uBlockType", (int)simpleType(i) - 1);
-      mSimpleMeshes[i].render(shader);
-    }
-  */
-}
-
-void cWorld::renderComplex(cShader *shader, Matrix4 pvm)
-{
-  /*
-  shader->setUniform("pvm", pvm);
-  for(int i = 0; i < mComplexMeshes.size(); i++)
-    {
-      shader->setUniform("uBlockType", (int)complexType(i) - 1);
-      mComplexMeshes[i].render(shader);
-    }
-  */
-}
-
-void cWorld::update()
-{
-  mChunks.update();
-
-  //mPlayer.update(dt);
-  
-  /*
-  if(mNeedUpdate)
-    {
-      updateMesh();
-      mNeedUpdate = false;
-    }
-  */
-}
-
-bool cWorld::readyForPlayer() const
-{
-  return (mChunks.numLoaded() > 1);
-}
-
-Point3f cWorld::getStartPos(const Point3i &pPos)
-{
-  return Point3f{pPos[0], pPos[1], pPos[2]};//mChunks.getHeightAt(pPos)};
-}
-
-void cWorld::chunkWorker(int id)
-{
-  /*
-  std::vector<Point3i> &chunks = mThreadChunks[id];
-  std::array<std::vector<SimpleFace>, BLOCK_SIMPLE_COUNT> &faces = mThreadFaces[id];
-  std::array<std::vector<Point3i>, BLOCK_COMPLEX_COUNT> &complexPos = mThreadComplex[id];
-  
-  while(mThreadsRunning)
-    {
-      // wait for work
-      std::unique_lock<std::mutex> lock(mThreadWorkLock);
-      mThreadWorkCv.wait(lock, [id, this]()
-			       { return (mThreadsWorking & (1 << id)) || !mThreadsRunning; } );
-      lock.unlock();
-      if(!mThreadsRunning)
-	{ break; }
-      
-      for(auto &chunkPos : chunks)
-	{
-	  mData.iterate(chunkPos,
-			[&faces, &complexPos, this](const Point3i &worldPos, block_t type, blockSide_t sides)
-			{
-			  if(isSimpleBlock(type))
-			    {
-			      const int typeIndex = simpleIndex(type);
-			      for(int i = 0; i < (int)normal_t::COUNT; i++)
-				{
-				  if((int)sides & (1 << i))
-				    { faces[typeIndex].push_back({worldPos, (normal_t)i, type}); }
-				}
-			    }
-			  else
-			    {
-			      const int typeIndex = complexIndex(type);
-			      complexPos[typeIndex].push_back(worldPos);
-			    }
-			});
-	}
-      
-      { // check if all threads done
-	std::lock_guard<std::mutex> lock(mThreadWaitLock);
-	mThreadsWorking &= ~(1 << id);
-      }
-      mThreadWaitCv.notify_one();
-    }
-  */
-}
-
-
-Point3i cWorld::chunkPos(const Point3f &worldPos) const
-{
-  return mChunks.chunkPoint(Point3i{std::floor(worldPos[0]),
-				    std::floor(worldPos[1]),
-				    std::floor(worldPos[2]) });
-}
-
-void cWorld::setCenter(const Point3i &chunkCenter)
-{
-  mChunks.setCenter(chunkCenter);
-}
-Point3i cWorld::getCenter() const
-{ return mChunks.getCenter(); }
-
-void cWorld::startLoading()
-{
-  mChunks.start();
-  //usleep(1000000);
-}
-void cWorld::stopLoading()
-{
-  mChunks.stop();
-}
-
-void cWorld::updateMesh()
-{
-  /*
-  static cFrameTimer timer("meshUpdate", 0.0);
-  timer.reset();
-  timer.start();
-  
-  mData.divideChunks(mThreadChunks);
-  {
-    std::lock_guard<std::mutex> lock(mThreadWorkLock);
-    mThreadsWorking = (1 << mNumThreads) - 1;
-  }
-  
-  std::unique_lock<std::mutex> lock(mThreadWaitLock);
-  mThreadWorkCv.notify_all();
-  mThreadWaitCv.wait(lock, [this]()
-			   { return mThreadsWorking == 0 || !mThreadsRunning; } );
-  lock.unlock();
-  
-  for(int i = 0; i < BLOCK_SIMPLE_COUNT; i++)
-    {
-      std::vector<cSimpleVertex> &vertices = mSimpleMeshes[i].getVertices();
-      std::vector<unsigned int> &indices = mSimpleMeshes[i].getIndices();
-
-      vertices.clear();
-      indices.clear();
-      
-      for(auto &t : mThreadFaces)
-	{
-	  for(auto &f : t[i])
-	    {
-	      const unsigned int numVert = vertices.size();
-	      for(auto &v : mFaceVertices[(int)f.norm])
-		{
-		  vertices.emplace_back(v.pos + f.pos, v.normal,
-		  			v.texcoord); 
-		}
-	      for(auto ind : mFaceIndices)
-		{ indices.push_back(numVert + ind); }
-	    }
-	}
-      mSimpleMeshes[i].setUpdate();
-    }
-  
-  //for(int i = 0; i < BLOCK_SIMPLE_COUNT; i++)
-    //{ mSimpleMeshes[i].setUpdate(); }
-  
-  for(int i = 0; i < BLOCK_COMPLEX_COUNT; i++)
-    {
-      const std::vector<cSimpleVertex> *modelVert = mModels[i].getVertices();
-      const std::vector<unsigned int> *modelInd = mModels[i].getIndices();
-      
-      std::vector<cSimpleVertex> &vertices = mComplexMeshes[i].getVertices();
-      std::vector<unsigned int> &indices = mComplexMeshes[i].getIndices();
-      
-      vertices.clear();
-      indices.clear();
-      
-      for(auto &t : mThreadComplex)
-	{
-	  for(auto &p : t[i])
-	    {
-	      const unsigned int numVert = vertices.size();
-	      for(const auto &v : *modelVert)
-		{
-		  vertices.emplace_back(v.pos + p, v.normal, v.texcoord);
-		}
-	      for(const auto ind : *modelInd)
-		{ indices.push_back(numVert + ind); }
-	    }
-	}
-      mComplexMeshes[i].setUpdate();
-    }
-
-  //for(int i = 0; i < BLOCK_COMPLEX_COUNT; i++)
-  //{ mComplexMeshes[i].setUpdate(); }
-  
-  double elapsed = timer.update(true);
-  std::cout << "Time elapsed for '" << timer.name << "': " << elapsed << "s (" << timer.elapsed << ")\n";
-
-  for(int i = 0; i < mNumThreads; i++)
-    {
-      for(auto &f : mThreadFaces[i])
-	{ f.clear(); }
-      for(auto &p : mThreadComplex[i])
-	{ p.clear(); }
-    }
-  */
-}
+*/

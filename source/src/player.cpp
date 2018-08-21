@@ -99,7 +99,7 @@ bool cPlayer::pickUp()
   if(mSelectedType != block_t::NONE)
     {
       LOGD("PLAYER GOT BLOCK! --> %d", (int)mSelectedType);
-      mInventory.push_back(mSelectedType);
+      onPickup(mSelectedType);
       mWorld->set(mSelectedPos, block_t::NONE);
       mSelectedType = block_t::NONE;
     }
@@ -109,7 +109,8 @@ bool cPlayer::pickUp()
 
 void cPlayer::place()
 {
-  if(mInventory.size() > 0)
+  block_t block = onPlace();
+  if(block != block_t::NONE)
     {
       if(mSelectedType != block_t::NONE)
 	{
@@ -117,10 +118,7 @@ void cPlayer::place()
 	    {
 	      LOGD("PLAYER PLACED BLOCK at: ");
 	      std::cout << mSelectedPos << " (face " << mSelectedFace << ")\n";
-	      if(mWorld->set(mSelectedPos + mSelectedFace, mInventory.back()))
-		{
-		  mInventory.pop_back();
-		}
+	      mWorld->set(mSelectedPos + mSelectedFace, block);
 	    }
 	}
     }
@@ -150,7 +148,8 @@ void cPlayer::render(Matrix4 pvm)
   //LOGD("PLAYER RENDER");
   mWireShader->bind();
   mWireShader->setUniform("pvm", pvm);
-  
+
+  //std::cout << "EYE: " << getEye() << ", UP: " << mUp << ", forward: " << mForward << "\n";
   if(!mWorld->rayCast(mBox.center() + mEyeOffset, getEye(), mReach,
 		      mSelectedType, mSelectedPos, mSelectedFace ))
     {
@@ -374,6 +373,30 @@ void cGodPlayer::onUpdate(double dt)
   //mMoveForce[2] = -GRAVITY*dt;
 }
 
+void cGodPlayer::setPlaceBlock(block_t type)
+{
+  mPlaceBlock = type;
+}
+void cGodPlayer::nextPlaceBlock()
+{
+  mPlaceBlock = (block_t)(((int)mPlaceBlock + 1) % (int)block_t::SIMPLE_COUNT);
+  LOGD("Selected tool: %d", (int)mPlaceBlock);
+}
+void cGodPlayer::prevPlaceBlock()
+{
+  mPlaceBlock = (block_t)(((int)mPlaceBlock - 1 + (int)block_t::SIMPLE_COUNT) % (int)block_t::SIMPLE_COUNT);
+  LOGD("Selected tool: %d", (int)mPlaceBlock);
+}
+
+void cGodPlayer::onPickup(block_t type)
+{
+
+}
+block_t cGodPlayer::onPlace()
+{
+  return mPlaceBlock;
+}
+
 
 
 
@@ -408,4 +431,15 @@ void cFpsPlayer::jump(float strength)
 void cFpsPlayer::onUpdate(double dt)
 { // add force of gravity
   mMoveForce[2] = -GRAVITY*dt;
+}
+
+void cFpsPlayer::onPickup(block_t type)
+{
+  mInventory.push(type);
+}
+block_t cFpsPlayer::onPlace()
+{
+  block_t b = mInventory.front();
+  mInventory.pop();
+  return b;
 }

@@ -22,18 +22,17 @@ void cThreadPool::start()
     }
 }
 
-void cThreadPool::stop()
+void cThreadPool::stop(bool join)
 {
-  // start load threads
-  if(mThreadsRunning)
+  mThreadsRunning = false;
+  if(join)
     {
-      mThreadsRunning = false;
+      // start load threads
       for(auto &thread : mThreads)
-	{ thread.join(); }
+        { thread.join(); }
       mThreads.clear();
     }
 }
-
 bool cThreadPool::running() const
 {
   return mThreadsRunning;

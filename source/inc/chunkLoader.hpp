@@ -4,7 +4,7 @@
 #include "block.hpp"
 #include "chunk.hpp"
 #include "threadPool.hpp"
-#include "mmapFile.hpp"
+#include "terrain.hpp"
 #include "worldFile.hpp"
 
 #include <string>
@@ -16,72 +16,74 @@
 #include <mutex>
 #include <queue>
 #include <memory>
+#include <fstream>
 
 class cRegionFile;
+
+typedef cChunk* chunkPtr_t;
 
 // attaches to file and loads/saves chunks as requested.
 class cChunkLoader
 {
 public:
-  typedef std::function<void(const Point3i &chunkPos)> loadCallback_t;
-  typedef std::function<void(const Point3i &chunkPos)> saveCallback_t;
+  typedef std::function<void(chunkPtr_t chunk)> loadCallback_t;
+  //typedef std::function<void(const Point3i &chunkPos)> saveCallback_t;
   
   static const std::unordered_set<uint32_t> acceptedVersions;
   
-  cChunkLoader();// numThreads, const loadCallback_t &loadCallback,
+  cChunkLoader(int loadThreads, const loadCallback_t &loadCallback);
 		    //const saveCallback_t &saveCallback);
   ~cChunkLoader();
 
-  //void start();
-  //void stop();
+  void start();
+  void stop();
 
+  bool createWorld(const std::string &worldName = "", uint32_t seed = 0);
   bool loadWorld(const std::string &worldName = "");
   
-  bool load(cChunk *chunk);
-  bool save(const cChunk *chunk);
+  std::vector<std::string> listWorlds();
+  std::vector<std::string> listRegions(const std::string &worldDir);
+  
+  void load(chunkPtr_t chunk);
+  void save(chunkPtr_t chunk);
 
-  void setSeed(uint32_t seed);
-  uint32_t getSeed() const { return mSeed; }
+  void loadDirect(chunkPtr_t chunk);
+  void saveDirect(chunkPtr_t chunk);
 
-  //void checkUpdate(int id);
+  uint32_t getSeed() const { return mHeader.seed; }
   
 private:
   std::string mWorldName = "";
   std::string mWorldPath = "";
-  
-  cMmapFile mWorldFile;
-  wDesc::Header mWorldHeader;
-  uint32_t mSeed = 0;
+  wDesc::Header mHeader;
 
   std::mutex mRegionLock;
   std::unordered_map<uint32_t, cRegionFile*> mRegionLookup;
-  /*
-  cThreadPool mPool;
-  std::mutex mLoadLock;
-  std::mutex mSaveLock;
-  std::queue<cChunk*> mLoadQueue;
-  std::queue<cChunk*> mSaveQueue;
+
+  cTerrainGenerator mTerrainGen;
+
   loadCallback_t mLoadCallback;
-  saveCallback_t mSaveCallback;
-  */
-  bool checkVersion(const Vector<uint8_t, 4> &version) const;
-  bool readWorld();
+  cThreadPool mLoadPool;
+  std::mutex mLoadLock;
+  std::queue<chunkPtr_t> mLoadQueue;
+  //cThreadPool mSavePool;
+  //std::mutex mSaveLock;
+  //std::queue<chunkPtr_t> mSaveQueue;
   
-  //uint32_t getRegionHash(const std::string &fileName) const;
-  std::string regionFilePath(uint32_t regionHash) const;
-  //int createRegion(uint32_t regionHash);
-  //bool readRegion(const std::string &fileName, int rIndex = -1);
+  bool checkVersion(const Vector<uint8_t, 4> &version) const;
 
-  void loadChunk(cChunk *chunk);
-  void saveChunk(cChunk *chunk);
-  //void generateChunk(const Point3i &chunkPos, terrain_t genType,
-  //                   std::vector<uint8_t> &dataOut ) const;
+  void loadChunk(chunkPtr_t chunk);
+  //void saveChunk(chunkPtr_t &chunk);
+  //cChunk* getLoadChunk();
+  //cChunk* getSaveChunk();
+  void checkLoad(int tid);
+  //void checkSave(int tid);
 
+  // optimized hashing functions
   int expand(int x);
+  int unexpand(int x) const;
   int hashRegion(int cx, int cy, int cz);
   int hashRegion(const Point3i &cp);
-  // optimized hashing functions
-  int unexpand(int x) const;
   int unhashX(int cx) const;
   int unhashY(int cy) const;
   int unhashZ(int cz) const;

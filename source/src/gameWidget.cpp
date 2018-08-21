@@ -71,7 +71,7 @@ void cGameWidget::glInit()
 {
   GlWidget::glInit();
   glClearColor(0.229, 0.657, 0.921, 1.0);
-  mEngine->initGl();
+  mEngine->initGl(this);
 }
 
 void cGameWidget::render()
@@ -245,7 +245,22 @@ void cGameWidget::keyReleaseEvent(QKeyEvent *event)
 
 void cGameWidget::wheelEvent(QWheelEvent *event)
 {
+  static const int inertia = 80;
+  static int position = 0;
   QPoint numPixels = event->pixelDelta();
+
+  position += numPixels.y();
+  while(position > inertia)
+    {
+      mEngine->nextTool();
+      position -= inertia;
+    }
+  while(position < -inertia)
+    {
+      mEngine->prevTool();
+      position += inertia;
+    }
+  
   event->accept();
 }
 

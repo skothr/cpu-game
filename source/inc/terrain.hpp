@@ -7,18 +7,20 @@
 #include <string>
 #include <ios>
 
+#include "vector.hpp"
 
 enum class terrain_t : uint8_t
   {
    INVALID = 0,
-   DEFAULT,
-   PERLIN
+   DIRT_GROUND,
+   PERLIN,
+   PERLIN_CHUNK
   };
 
 class cPerlinNoise
 {
 public:
-  cPerlinNoise(unsigned int seed = 0);
+  cPerlinNoise(uint32_t seed = 0);
   ~cPerlinNoise();
 
 
@@ -49,7 +51,6 @@ public:
     
 private:
   std::vector<int> mVals;
-  unsigned int mSeed;
   
   inline double fade(double t)
   { return t * t * t * (t * (t * 6 - 0x0F) + 10); }
@@ -68,5 +69,29 @@ private:
   //   return (int)(std::pow(()));
   // }
 };
+
+
+
+class cTerrainGenerator
+{
+public:
+  cTerrainGenerator(uint32_t seed)
+    : mSeed(seed), mNoise(seed)
+  { }
+
+  void setSeed(uint32_t seed)
+  {
+    mSeed = seed;
+    mNoise.setSeed(mSeed);
+  }
+  uint32_t getSeed() const { return mSeed; }
+  
+  void generate(const Point3i &chunkPos, terrain_t genType,
+                     std::vector<uint8_t> &dataOut);
+private:
+  cPerlinNoise mNoise;
+  uint32_t mSeed;
+};
+
   
 #endif // TERRAIN_HPP

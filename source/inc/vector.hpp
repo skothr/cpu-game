@@ -115,6 +115,13 @@ public:
     return -Vector<T, N>(*this);
   }
 
+  /*
+  Vector<T, N> intersection(const Vector &min1, const Vector &max1,
+                            const Vector &min2, const Vector &max2) const
+  {
+    return Vector({min1[0] <});
+  }
+  */
 
   T length() const;
   Vector<T, N> normalized() const;
