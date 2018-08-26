@@ -49,8 +49,10 @@ struct InputData
   };
   struct MouseMove
   {
+    Point2f vPos;
     Vector2i dPos;
     bool drag;
+    bool captured;
   };
   struct MouseClick
   {

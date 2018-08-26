@@ -1,6 +1,7 @@
 #include "player.hpp"
 #include "logging.hpp"
 #include "shader.hpp"
+#include "geometry.hpp"
 
 #define DRAG 0.98f
 
@@ -94,6 +95,35 @@ cPlayer::~cPlayer()
   delete mWireShader;
 }
 
+
+void cPlayer::setSelectMode(bool mode)
+{
+  mSelectMode = mode;
+}
+void cPlayer::select(const Point2f &pos, const Matrix4 &proj)
+{
+  mSelectPos = pos;
+  mSelectPos[1] *= -1.0f;
+  if(mSelectMode)
+    { // find vector mouse is hovering over
+      Matrix<4> pInv(proj.getQMat().inverted());
+      Matrix<4> vInv(getView().getQMat().inverted());
+      Vector<float, 4> pos({mSelectPos[0], mSelectPos[1], -1.0f, 1.0f});
+      // inverse projection
+      Vector<float, 4> rayEye = pInv * pos;
+      rayEye[2] = -1.0f;
+      rayEye[3] = 0.0f;
+      // inverse view
+      Vector<float, 4> rayWorld = vInv * rayEye;
+      mSelectRay = Vector3f({rayWorld[0], rayWorld[1], rayWorld[2]}).normalized();
+    }
+}
+
+cBlock* cPlayer::selectedBlock()
+{
+  return mSelectedBlock;
+}
+
 bool cPlayer::pickUp()
 {
   if(mSelectedType != block_t::NONE)
@@ -146,23 +176,32 @@ void cPlayer::cleanupGL()
 void cPlayer::render(Matrix4 pvm)
 {
   //LOGD("PLAYER RENDER");
-  mWireShader->bind();
-  mWireShader->setUniform("pvm", pvm);
 
   //std::cout << "EYE: " << getEye() << ", UP: " << mUp << ", forward: " << mForward << "\n";
-  if(!mWorld->rayCast(mBox.center() + mEyeOffset, getEye(), mReach,
-		      mSelectedType, mSelectedPos, mSelectedFace ))
+  
+  Vector3f selectRay = (mSelectMode ? mSelectRay : getEye());
+  if(!mWorld->rayCast(mBox.center() + mEyeOffset, selectRay, mReach,
+		      mSelectedBlock, mSelectedPos, mSelectedFace ))
     {
       mSelectedType = block_t::NONE;
+      mSelectedBlock = nullptr;
     }
-  if(mSelectedType != block_t::NONE)
+
+  if(mSelectedBlock)
+    { mSelectedType = mSelectedBlock->type; }
+  else
+    { mSelectedType = block_t::NONE; }
+  
+  if(mSelectedBlock) //mSelectedType != block_t::NONE)
     {
+      mWireShader->bind();
+      mWireShader->setUniform("pvm", pvm);
       //LOGI("Selected block --> (%d, %d, %d)", mSelectedPos[0], mSelectedPos[1], mSelectedPos[2]);
       mHighlightModel.render(mWireShader,
                              pvm*matTranslate(mSelectedPos[0], mSelectedPos[1], mSelectedPos[2]));
       //std::cout << "HIGHLIGHTED: " << mHighlighted << "\n";
+      mWireShader->release();
     }
-  mWireShader->release();
 }
 
 
@@ -334,7 +373,9 @@ void cPlayer::update(double dt)
     }
   mBox.setCenter(center);
 
-  Point3i chunkPos = Point3i{std::floor(center[0]) / cChunk::sizeX, std::floor(center[1])/cChunk::sizeY, std::floor(center[2])/cChunk::sizeZ};// - Point3i{cChunk::sizeX, cChunk::sizeY, cChunk::sizeZ}/2;;
+  Point3i chunkPos = cChunk::chunkPos(Point3i{std::floor(center[0]),
+                                              std::floor(center[1]),
+                                              std::floor(center[2])});
   //std::cout << "WORLD CENTER: " << mWorld->getCenter() << ", PLAYER POS: " << center << "\n";
   
   static Point3i lastChunkPos = chunkPos;
@@ -379,12 +420,12 @@ void cGodPlayer::setPlaceBlock(block_t type)
 }
 void cGodPlayer::nextPlaceBlock()
 {
-  mPlaceBlock = (block_t)(((int)mPlaceBlock + 1) % (int)block_t::SIMPLE_COUNT);
+  mPlaceBlock = (block_t)(((int)mPlaceBlock + 1) % (int)block_t::COMPLEX_START);
   LOGD("Selected tool: %d", (int)mPlaceBlock);
 }
 void cGodPlayer::prevPlaceBlock()
 {
-  mPlaceBlock = (block_t)(((int)mPlaceBlock - 1 + (int)block_t::SIMPLE_COUNT) % (int)block_t::SIMPLE_COUNT);
+  mPlaceBlock = (block_t)(((int)mPlaceBlock - 1 + (int)block_t::COMPLEX_START) % (int)block_t::COMPLEX_START);
   LOGD("Selected tool: %d", (int)mPlaceBlock);
 }
 

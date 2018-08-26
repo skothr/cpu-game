@@ -9,18 +9,16 @@
 
 #include <unistd.h>
 #include <exception>
+#include <functional>
 
 #include <QString>
 #include <QOpenGLShaderProgram>
 #include <QOpenGLBuffer>
 #include <QCursor>
-#include <functional>
 #include <QWidget>
 #include <QTimer>
 
-//#include "shader.hpp"
-//#include "vertex.hpp"
-//#include "objLoader.hpp"
+#include "block.hpp"
 #include "player.hpp"
 #include "vector.hpp"
 
@@ -42,11 +40,10 @@ cGameWidget::cGameWidget(QWidget *parent, int numThreads, const std::string &wor
   connect(mPosDisplay, SIGNAL(timeout()), SLOT(sendPos()));
   mPosDisplay->start(10);
 
-  LOGD("Focus");
-  setFocus();//Qt::ActiveWindowFocusReason);
-  setFocusPolicy((Qt::FocusPolicy)(Qt::StrongFocus | Qt::WheelFocus));
+  setFocusPolicy((Qt::FocusPolicy)(Qt::StrongFocus));
+  setFocus();
+  grabKeyboard();
   setMouseTracking(true);
-  LOGD("DONE");
 }
 
 cGameWidget::~cGameWidget()
@@ -62,10 +59,16 @@ cGameWidget::~cGameWidget()
   LOGD("Done cleaning up GL.");
   doneCurrent();
   
-  delete mRenderTimer;
-  delete mPosDisplay;
+  //delete mRenderTimer;
+  //delete mPosDisplay;
   delete mEngine;
 }
+
+cVoxelEngine* cGameWidget::getEngine()
+{
+  return mEngine;
+}
+
 
 void cGameWidget::glInit()
 {
@@ -84,10 +87,30 @@ void cGameWidget::sendPos()
 {
   Point3f ppos = mEngine->getPlayer()->getPos();
   Point3i coll = mEngine->getPlayer()->getCollisions();
-  Point3i cpos{(int)ppos[0]/16, (int)ppos[1]/16, (int)ppos[2]/16};
+  Point3i cpos = cChunk::chunkPos(ppos);
   emit posChanged(ppos, coll, cpos);
+  cBlock *b = mEngine->getPlayer()->selectedBlock();
+  if(b)
+    {
+      emit blockInfo(b->type, b->lightLevel);
+    }
+  else
+    {
+      emit blockInfo(block_t::NONE, 0);
+    }
 }
 
+void cGameWidget::setTool(block_t type)
+{
+  mEngine->setTool(type);
+}
+
+void cGameWidget::captureMouse(bool capture)
+{
+  mMouseCaptured = capture;
+}
+bool cGameWidget::getMouseCaptured() const
+{ return mMouseCaptured; }
 
 void cGameWidget::mousePressEvent(QMouseEvent *event)
 {
@@ -125,16 +148,27 @@ void cGameWidget::mouseMoveEvent(QMouseEvent *event)
   if(mMousePos.x() > -500)
     {
       QPoint dPos = event->pos() - mMousePos;
-      InputData data;
+      
+      InputData data;      
       data.type = input_t::MOUSE_MOVE;
+      data.mouseMove.vPos = Vector2f{(float)event->pos().x() / width(),
+                                     (float)event->pos().y() / height() };
       data.mouseMove.dPos = Vector2i{dPos.x(), dPos.y()};
       data.mouseMove.drag = mMouseDown;
+      data.mouseMove.captured = mMouseCaptured;
       mEngine->sendInput(data);
     }
-  
-  QPoint glob = mapToGlobal(QPoint(width()/2, height()/2));
-  QCursor::setPos(glob);
-  mMousePos = QPoint(width()/2, height()/2);
+
+  if(mMouseCaptured)
+    {
+      QPoint glob = mapToGlobal(QPoint(width()/2, height()/2));
+      QCursor::setPos(glob);
+      mMousePos = QPoint(width()/2, height()/2);
+    }
+  else
+    {
+      mMousePos = event->pos();
+    }
   QOpenGLWidget::mouseMoveEvent(event);
 }
 
@@ -190,8 +224,10 @@ void cGameWidget::keyPressEvent(QKeyEvent *event)
       data.type = input_t::ACTION_SNEAK;
       data.action.magnitude = 1.0;
       break;
+      
     default:
-      break;
+      event->ignore();
+      return;
     }
   
   mEngine->sendInput(data);
@@ -245,6 +281,7 @@ void cGameWidget::keyReleaseEvent(QKeyEvent *event)
 
 void cGameWidget::wheelEvent(QWheelEvent *event)
 {
+  /*
   static const int inertia = 80;
   static int position = 0;
   QPoint numPixels = event->pixelDelta();
@@ -262,6 +299,7 @@ void cGameWidget::wheelEvent(QWheelEvent *event)
     }
   
   event->accept();
+  */
 }
 
 void cGameWidget::onResize(int w, int h)

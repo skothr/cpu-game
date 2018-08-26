@@ -82,7 +82,7 @@ static float intbound(float s, float ds)
 }
 
 bool cWorld::rayCast(const Point3f &p, const Vector3f &d, float radius,
-		     block_t &blockOut, Point3i &posOut, Vector3i &faceOut )
+		     cBlock* &blockOut, Point3i &posOut, Vector3i &faceOut )
 {
   //LOGD("RAYCASTING");
   if(d[0] == 0 && d[1] == 0 && d[2] == 0)
@@ -113,8 +113,8 @@ bool cWorld::rayCast(const Point3f &p, const Vector3f &d, float radius,
 	   pi[1] >= chunkMax[1]*cChunk::sizeY ||
 	   pi[2] >= chunkMax[2]*cChunk::sizeZ ))
 	{
-	  block_t b = get(pi);
-	  if(b != block_t::NONE)
+	  cBlock *b = mChunks.at(pi);
+	  if(b && b->type != block_t::NONE)
 	    {
 	      blockOut = b;
 	      posOut = pi;
@@ -198,13 +198,13 @@ Point3f cWorld::getStartPos(const Point3i &pPos)
 {
   return Point3f{pPos[0], pPos[1], pPos[2]};//mChunks.getHeightAt(pPos)};
 }
-\
+
 
 Point3i cWorld::chunkPos(const Point3f &worldPos) const
 {
-  return mChunks.chunkPoint(Point3i{std::floor(worldPos[0]),
-				    std::floor(worldPos[1]),
-				    std::floor(worldPos[2]) });
+  return cChunkManager::chunkPos(Point3i{std::floor(worldPos[0]),
+                                         std::floor(worldPos[1]),
+                                         std::floor(worldPos[2]) });
 }
 
 void cWorld::setCenter(const Point3i &chunkCenter)

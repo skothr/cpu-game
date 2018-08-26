@@ -38,8 +38,10 @@ public:
   // data access
   float& operator()(unsigned int r, unsigned int c);
   float operator()(unsigned int r, unsigned int c) const;
-  float& at(unsigned int r, unsigned int c);
-  float at(unsigned int r, unsigned int c) const;
+  float& at(unsigned int r, unsigned int c)
+  { return mData[r*N+c]; }
+  float at(unsigned int r, unsigned int c) const
+  { return mData[r*N+c]; }
 
   const float* data() const;
   float* dataCopy() const;
@@ -53,8 +55,14 @@ public:
   Matrix<N>& operator-=(const Matrix<N> &other);
   Matrix<N> operator-(const Matrix<N> &other) const;
   
-  //Vector<float, 3> operator*(const Vector<float, 4> &v) const;
-  //friend Vector<float, 3> operator*(const Vector<float, 4> &v, const Matrix<N> &m);
+  Vector<float, N> operator*(const Vector<float, N> &v) const;
+  friend Vector<float, N> operator*(const Vector<float, N> &v, const Matrix<N> &m)
+  {
+    return Vector<float, 4>({m.at(0,0)*v[0] + m.at(1,0)*v[1] + m.at(2,0)*v[2] + m.at(3,0)*v[3],
+                             m.at(0,1)*v[0] + m.at(1,1)*v[1] + m.at(2,1)*v[2] + m.at(3,1)*v[3],
+                             m.at(0,2)*v[0] + m.at(1,2)*v[1] + m.at(2,2)*v[2] + m.at(3,2)*v[3],
+                             m.at(0,3)*v[0] + m.at(1,3)*v[1] + m.at(2,3)*v[2] + m.at(3,3)*v[3] });
+  }
 
   Matrix<N>& operator*=(const float &scalar);
   Matrix<N> operator*(const float &scalar) const;
@@ -64,6 +72,10 @@ public:
 
   Matrix<N> cross(const Matrix<4> &other) const;
 
+  QMatrix4x4 getQMat() const
+  {
+    return QMatrix4x4(mData);
+  }
   
   Matrix<N>& identity();
   Matrix<N>& translate(float tx, float ty, float tz);
@@ -175,12 +187,6 @@ float& Matrix<N>::operator()(unsigned int r, unsigned int c)
 { return mData[r*N+c]; }
 template<int N>
 float Matrix<N>::operator()(unsigned int r, unsigned int c) const
-{ return mData[r*N+c]; }
-template<int N>
-float& Matrix<N>::at(unsigned int r, unsigned int c)
-{ return mData[r*N+c]; }
-template<int N>
-float Matrix<N>::at(unsigned int r, unsigned int c) const
 { return mData[r*N+c]; }
 
 template<int N>
@@ -366,6 +372,14 @@ Vector<float, N> operator*(const Vector<float, N> &v, const Matrix<N> &m)
 }
 
 
+template<int N>
+Vector<float, N> Matrix<N>::operator*(const Vector<float, N> &v) const
+{
+  return Vector<float, N>({at(0,0)*v[0] + at(0,1)*v[1] + at(0,2)*v[2] + at(0,3)*v[3],
+                           at(1,0)*v[0] + at(1,1)*v[1] + at(1,2)*v[2] + at(1,3)*v[3],
+                           at(2,0)*v[0] + at(2,1)*v[1] + at(2,2)*v[2] + at(2,3)*v[3],
+                           at(3,0)*v[0] + at(3,1)*v[1] + at(3,2)*v[2] + at(3,3)*v[3] });
+}
 
 template<int N>
 Matrix<N>& Matrix<N>::identity()

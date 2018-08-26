@@ -32,6 +32,8 @@ public:
   void setUniform(const std::string &name, const Matrix4 &mat);
   void setUniform(const std::string &name, const QMatrix4x4 &mat);
   void setUniform(const std::string &name, int val);
+  void setUniform(const std::string &name, float val);
+  void setUniform(const std::string &name, const Point3f &v);
 
   bool initialized() const
   { return mLoaded; }

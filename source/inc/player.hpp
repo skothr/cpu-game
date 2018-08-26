@@ -38,8 +38,6 @@ protected:
   float mPitchMult = 1.0;
   float mYawMult = 1.0;
   float mMoveSpeed = 1.0;
-
-
 };
 
 
@@ -51,6 +49,11 @@ class cPlayer : public cCamera
 public:
   cPlayer(QObject *qparent, Vector3f pos, Vector3f forward, Vector3f up, cWorld *world, Vector3f eyeOffset, float reach);
   ~cPlayer();
+  
+  void setSelectMode(bool mode);
+  void select(const Point2f &pos, const Matrix4 &proj);
+
+  cBlock* selectedBlock();
   
   bool pickUp();
   void place();
@@ -70,10 +73,14 @@ public:
 protected:
   cWorld *mWorld;
   float mReach;
+  
+  bool mSelectMode = false; // whether to select with free mouse instead of rotating
+  Point2f mSelectPos; // [-1, 1]
+  Vector3f mSelectRay;
 
   cShader *mWireShader = nullptr;
   cModelObj mHighlightModel;
-  //cBlock *mSelected = nullptr;
+  cBlock *mSelectedBlock = nullptr;
   block_t mSelectedType = block_t::NONE;
   Point3i mSelectedPos;
   Vector3i mSelectedFace;

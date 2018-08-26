@@ -5,15 +5,14 @@
 #include <QWidget>
 
 #include "vector.hpp"
+#include "block.hpp"
 
 class QVBoxLayout;
 class QGridLayout;
-class QPushButton;
-class QSpinBox;
 class cGameWidget;
-class QLabel;
 class cOverlay;
 class QStackedLayout;
+class cControlInterface;
 
 class cMainWindow : public QWidget
 {
@@ -28,14 +27,21 @@ public slots:
   void stepPhysics();
   void setTimestep(int timestepMs);
   void setPosition(Point3f player, Point3i collisions, Point3i chunk);
+  void setBlockInfo(block_t type, int lightLevel);
+  
+protected slots:
+  void toolSelected(int id, bool checked);
   
 protected:
   void keyPressEvent(QKeyEvent *event);
-  
+
 private:
   cGameWidget *mGame = nullptr;
-  QStackedLayout *mMainLayout = nullptr;
+  QStackedLayout *mGameLayout = nullptr;
   cOverlay *mOverlay = nullptr;
+  cControlInterface *mBottomControl = nullptr;
+  
+  QGridLayout *mMainLayout = nullptr;
 };
 
 #endif //MAIN_WINDOW_HPP

@@ -9,17 +9,17 @@
 
 
 #define START_CHUNK Point3i({0, 0, 0})
-#define CHUNK_RAD Vector3i({6, 6, 2})
+#define CHUNK_RAD Vector3i({1, 1, 1})
 #define START_POS Point3f({START_CHUNK[0]*cChunk::sizeX + cChunk::sizeX/2, \
                            START_CHUNK[1]*cChunk::sizeY + cChunk::sizeY/2, \
                            START_CHUNK[2]*cChunk::sizeZ + 8 })
 #define PLAYER_EYE Vector3f{0,1,0}
 #define PLAYER_UP Vector3f{0,0,1}
 
-#define PLAYER_FOV 60
+#define PLAYER_FOV 70
 #define PLAYER_ASPECT 1.0
-#define PLAYER_Z_NEAR 0.01
-#define PLAYER_Z_FAR 1000.0
+#define PLAYER_Z_NEAR 0.2
+#define PLAYER_Z_FAR 256.0
 
 #define PHYSICS_TIMESTEP_MS 10 //ms
 #define PHYSICS_TIMESTEP_S (TIMESTEP_MS / 1000.0f)
@@ -81,6 +81,14 @@ void cVoxelEngine::updateBlocks(int us)
 {
   mWorld->update();
 }
+
+
+
+void cVoxelEngine::setLightLevel(int lightLevel)
+{
+  mWorld->setLightLevel(lightLevel);
+}
+
 
 bool cVoxelEngine::initGl(QObject *qparent)
 {
@@ -151,7 +159,7 @@ void cVoxelEngine::render()
   
   Matrix4 m = mProjMat * mPlayer->getView();
   
-
+  mWorld->setCamPos(mPlayer->getPos());
   mWorld->render(m);
   mPlayer->render(m);
   //glFinish();
@@ -221,7 +229,16 @@ break;
       break;
 
     case input_t::MOUSE_MOVE:
-      mPlayer->rotate(data.mouseMove.dPos[1]*0.08f, data.mouseMove.dPos[0]*0.06f*mProjDesc.aspect);
+      if(data.mouseMove.captured)
+        {
+          mPlayer->setSelectMode(false);
+          mPlayer->rotate(data.mouseMove.dPos[1]*0.08f, -data.mouseMove.dPos[0]*0.06f*mProjDesc.aspect);
+        }
+      else
+        {
+          mPlayer->setSelectMode(true);
+          mPlayer->select(data.mouseMove.vPos * 2.0f - 1.0f, mProjMat);
+        }
       break;
     case input_t::MOUSE_CLICK:
       switch(data.mouseClick.button)

@@ -10,6 +10,7 @@
 #include <vector>
 #include <unordered_map>
 #include <queue>
+#include <deque>
 #include <string>
 #include <ostream>
 #include <thread>
@@ -34,7 +35,6 @@ class cTextureAtlas;
 class cChunkManager
 {
 public:
-
   int getThread(const Point3i &cp);
   
   cChunkManager(int loadThreads, const Point3i &center, const Vector3i &loadRadius);
@@ -48,6 +48,11 @@ public:
   void cleanupGL();
   void render(const Matrix4 &pvm);
 
+  void setCamPos(const Point3f &pos)
+  { mCamPos = pos; }
+
+  void setLighting(int lightLevel);
+  void updateLighting();
   
   void setRadius(const Vector3i &loadRadius);
   void setCenter(const Point3i &newCenter);
@@ -57,6 +62,7 @@ public:
   Point3i maxChunk() const;
   
   block_t get(const Point3i &wp);
+  cBlock* at(const Point3i &wp);
   //cBlock* get(const Point3i &wp);
   void set(const Point3i &wp, block_t type);
   int numLoaded() const;
@@ -72,16 +78,29 @@ public:
   Point3i chunkPoint(const Point3i &worldPos) const;
   friend std::ostream& operator<<(std::ostream &os, const cChunkManager &set);
   
+  static int chunkX(int wx);
+  static int chunkY(int wy);
+  static int chunkZ(int wz);
+  static Point3i chunkPos(const Point3i &wp);
+  
 private:
   std::mutex mChunkLock;
   cChunkArray mChunks;
+  //std::unordered_map<int, cChunk*> mChunks;
+  //std::deque<cChunk*> mInactiveChunks;
+  //std::vector<std::queue<cChunk*>> mNewChunks;
+  //std::vector<std::queue<int>> mDeadChunks;
+  //std::vector<std::vector<Point3i>> mThreadLoop;
 
+  bool mLightInit = false;
   std::atomic<int> mNumLoaded = 0;
   Point3i mCenter;
   Vector3i mLoadRadius;
   Vector3i mChunkDim;
   Point3i mMinChunk;
   Point3i mMaxChunk;
+
+  int mLighting = 0;
   
   cChunkLoader mLoader;
   cThreadPool mUpdatePool;
@@ -89,6 +108,8 @@ private:
   // rendering
   cShader *mBlockShader = nullptr;
   cTextureAtlas *mTexAtlas = nullptr;
+
+  Point3f mCamPos;
 
   void updateWorker(int id);
   void chunkLoadCallback(chunkPtr_t chunk);
@@ -102,11 +123,6 @@ private:
   int unhashY(int cy) const;
   int unhashZ(int cz) const;
   Point3i unhashChunk(const Point3i &rp) const;
-  
-  int chunkX(int wx) const;
-  int chunkY(int wy) const;
-  int chunkZ(int wz) const;
-  Point3i chunkPos(const Point3i &wp) const;
 };
 
 

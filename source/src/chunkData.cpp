@@ -49,14 +49,20 @@ blockSide_t cChunkData::set(int bx, int by, int bz, block_t type)
   if(type != mData[bi].type)
     {
       mData[bi].type = type;
+      mData[bi].updateOcclusion();
       const blockSide_t edge = chunkEdge(bx, by, bz);
-      for(int i = 0; i < 6; i++)
-        {
-          const blockSide_t side = (blockSide_t)(1 << i);
-          if(!(bool)(edge & side))
-            { updateSide(bx, by, bz, bi, side); }
-        }
-      updateLighting(bx, by, bz);
+      if(!(bool)(edge & blockSide_t::PX))
+        { updateSide(bx, by, bz, bi, blockSide_t::PX); }
+      if(!(bool)(edge & blockSide_t::PY))
+        { updateSide(bx, by, bz, bi, blockSide_t::PY); }
+      if(!(bool)(edge & blockSide_t::PZ))
+        { updateSide(bx, by, bz, bi, blockSide_t::PZ); }
+      if(!(bool)(edge & blockSide_t::NX))
+        { updateSide(bx, by, bz, bi, blockSide_t::NX); }
+      if(!(bool)(edge & blockSide_t::NY))
+        { updateSide(bx, by, bz, bi, blockSide_t::NY); }
+      if(!(bool)(edge & blockSide_t::NZ))
+        { updateSide(bx, by, bz, bi, blockSide_t::NZ); }
       return edge;
     }
   else
@@ -76,14 +82,18 @@ void cChunkData::updateBlocks()
       for(int bx = 0; bx < sizeX; bx++, bi++)
         {
           const blockSide_t edge = chunkEdge(bx, by, bz);
-          
-          for(int i = 0; i < 6; i++)
-            {
-              const blockSide_t side = (blockSide_t)(1 << i);
-              if(!(bool)(edge & side))
-                { updateSide(bx, by, bz, bi, side); }
-            }
-          updateLighting(bx, by, bz);
+          if(!(bool)(edge & blockSide_t::PX))
+            { updateSide(bx, by, bz, bi, blockSide_t::PX); }
+          if(!(bool)(edge & blockSide_t::PY))
+            { updateSide(bx, by, bz, bi, blockSide_t::PY); }
+          if(!(bool)(edge & blockSide_t::PZ))
+            { updateSide(bx, by, bz, bi, blockSide_t::PZ); }
+          if(!(bool)(edge & blockSide_t::NX))
+            { updateSide(bx, by, bz, bi, blockSide_t::NX); }
+          if(!(bool)(edge & blockSide_t::NY))
+            { updateSide(bx, by, bz, bi, blockSide_t::NY); }
+          if(!(bool)(edge & blockSide_t::NZ))
+            { updateSide(bx, by, bz, bi, blockSide_t::NZ); }
         }
 }
 
@@ -105,14 +115,11 @@ void cChunkData::deserialize(const uint8_t *dataIn, int bytes)
     {
       block.deserialize((dataIn + offset), cBlock::dataSize);
       offset += cBlock::dataSize;
-      if(offset + cBlock::dataSize >= bytes)
+      if(offset >= bytes)
         { break; }
     }
-
-  for(int by = 0; by < sizeY; by++)
-    for(int bz = 0; bz < sizeZ; bz++)
-      for(int bx = 0; bx < sizeX; bx++)
-        { updateLighting(bx, by, bz); }
+  for(int bi = 0; bi < totalSize; bi++)
+    { mData[bi].updateOcclusion(); }
 }
 
 #define NEIGHBOR_TEX false
@@ -124,16 +131,16 @@ void cChunkData::deserialize(const uint8_t *dataIn, int bytes)
         ACTION
 
 
-void cChunkData::updateLighting(int bx, int by, int bz)
+void cChunkData::updateOcclusion(int bx, int by, int bz)
 {
   int bi = index(bx, by, bz);
-  mData[bi].lightLevel = ((mData[bi].type == block_t::NONE) ? 1 : 0);
+  mData[bi].updateOcclusion();
 }
 
 inline int getAO(int e1, int e2, int c)
 {
-  if(e1 == 0 && e2 == 0)
-    { return 0; }
+  if(e1 == 1 && e2 == 1)
+    { return 3; }
   else
     { return (e1 + e2 + c); }
 }
@@ -149,47 +156,47 @@ uint8_t cChunkData::getLighting(int bx, int by, int bz, int vx, int vy, int vz, 
     case blockSide_t::PX:
       c0 = vy * 2 - 1;
       c1 = vz * 2 - 1;
-      lc = mData[index(bx+1, by+c0, bz+c1)].lightLevel;
-      le0 = mData[index(bx+1, by, bz+c1)].lightLevel;
-      le1 = mData[index(bx+1, by+c0, bz)].lightLevel;
+      lc = mData[index(bx+1, by+c0, bz+c1)].occlusion;
+      le0 = mData[index(bx+1, by, bz+c1)].occlusion;
+      le1 = mData[index(bx+1, by+c0, bz)].occlusion;
       break;
     case blockSide_t::PY:
       c0 = vx * 2 - 1;
       c1 = vz * 2 - 1;
-      lc = mData[index(bx+c0, by+1, bz+c1)].lightLevel;
-      le0 = mData[index(bx, by+1, bz+c1)].lightLevel;
-      le1 = mData[index(bx+c0, by+1, bz)].lightLevel;
+      lc = mData[index(bx+c0, by+1, bz+c1)].occlusion;
+      le0 = mData[index(bx, by+1, bz+c1)].occlusion;
+      le1 = mData[index(bx+c0, by+1, bz)].occlusion;
       break;
     case blockSide_t::PZ:
       c0 = vy * 2 - 1;
       c1 = vx * 2 - 1;
-      lc = mData[index(bx+c1, by+c0, bz+1)].lightLevel;
-      le0 = mData[index(bx, by+c0, bz+1)].lightLevel;
-      le1 = mData[index(bx+c1, by, bz+1)].lightLevel;
+      lc = mData[index(bx+c1, by+c0, bz+1)].occlusion;
+      le0 = mData[index(bx, by+c0, bz+1)].occlusion;
+      le1 = mData[index(bx+c1, by, bz+1)].occlusion;
       break;
     case blockSide_t::NX:
       c0 = vy * 2 - 1;
       c1 = vz * 2 - 1;
-      lc = mData[index(bx-1, by+c0, bz+c1)].lightLevel;
-      le0 = mData[index(bx-1, by, bz+c1)].lightLevel;
-      le1 = mData[index(bx-1, by+c0, bz)].lightLevel;
+      lc = mData[index(bx-1, by+c0, bz+c1)].occlusion;
+      le0 = mData[index(bx-1, by, bz+c1)].occlusion;
+      le1 = mData[index(bx-1, by+c0, bz)].occlusion;
       break;
     case blockSide_t::NY:
       c0 = vx * 2 - 1;
       c1 = vz * 2 - 1;
-      lc = mData[index(bx+c0, by-1, bz+c1)].lightLevel;
-      le0 = mData[index(bx, by-1, bz+c1)].lightLevel;
-      le1 = mData[index(bx+c0, by-1, bz)].lightLevel;
+      lc = mData[index(bx+c0, by-1, bz+c1)].occlusion;
+      le0 = mData[index(bx, by-1, bz+c1)].occlusion;
+      le1 = mData[index(bx+c0, by-1, bz)].occlusion;
       break;
     case blockSide_t::NZ:
       c0 = vy * 2 - 1;
       c1 = vx * 2 - 1;
-      lc = mData[index(bx+c1, by+c0, bz-1)].lightLevel;
-      le0 = mData[index(bx, by+c0, bz-1)].lightLevel;
-      le1 = mData[index(bx+c1, by, bz-1)].lightLevel;
+      lc = mData[index(bx+c1, by+c0, bz-1)].occlusion;
+      le0 = mData[index(bx, by+c0, bz-1)].occlusion;
+      le1 = mData[index(bx+c1, by, bz-1)].occlusion;
       break;
     }
-  return getAO(le0, le1, lc);//(lc*(le0+le1)+2*(le0+le1))/2;// + getLighting(bx, by, bz, vx, vy, vz, side))/2;
+  return mData[index(bx+c0, by+1, bz)].lightLevel - getAO(le0, le1, lc);
 }
 
 inline void cChunkData::updateSide(int bx, int by, int bz, blockSide_t side)

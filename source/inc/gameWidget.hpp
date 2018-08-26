@@ -18,12 +18,19 @@ public:
 	      const std::string &worldName = "", uint32_t seed = 0 );
   virtual ~cGameWidget();
 
+  cVoxelEngine* getEngine();
+  void captureMouse(bool capture);
+  bool getMouseCaptured() const;
+  
+  void setTool(block_t type);
+
+
 signals:
   void posChanged(Point3f player, Point3i collisions, Point3i chunk);
+  void blockInfo(block_t type, int light);
 
 public slots:
-  void sendPos();
-  
+  void sendPos();  
 protected:
   virtual void glInit() override;
   virtual void render() override;
@@ -42,11 +49,13 @@ protected:
   
 private:
   bool mMouseDown = false;
+  bool mMouseCaptured = false;
   QPoint mMousePos;
   
   QTimer *mPosDisplay = nullptr;
   QTimer *mRenderTimer = nullptr;
   cVoxelEngine *mEngine = nullptr;
+
 };
 
 #endif //GAME_WIDGET_HPP

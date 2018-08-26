@@ -192,7 +192,7 @@ bool cRegionFile::readChunk(cChunk *chunk)
   //std::cout << "Chunk index: " << cIndex << " : " << cPos << "\n";
 
   if(!mChunkStatus[cIndex].exchange(true))
-  {
+    {
       mChunkData[cIndex].resize(cChunk::totalSize * cBlock::dataSize);
 
       if(mChunkInfo[cIndex].chunkSize != 0)
@@ -211,7 +211,7 @@ bool cRegionFile::readChunk(cChunk *chunk)
           mChunkStatus[cIndex].store(false);
           return false;
         }
-  }
+    }
   return false;
 }
 

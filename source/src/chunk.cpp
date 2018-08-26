@@ -1,6 +1,7 @@
 #include "chunk.hpp"
 
 #include <iostream>
+#include <unordered_set>
 #include "nmmintrin.h"
 
 inline int sumBits(uint32_t i)
@@ -21,6 +22,8 @@ cChunk::cChunk(const Point3i &worldPos)
   : mWorldPos(worldPos)
 {
   mMesh = new cChunkMesh();
+  for(int i = 0; i < gBlockSides.size(); i++)
+    { mNeighbors.emplace(gBlockSides[i], nullptr); }
 }
 
 cChunk::cChunk(const cChunk &other)
@@ -43,56 +46,54 @@ bool cChunk::empty() const
   return true;
 }
 
-cBlock* cChunk::at(int bx, int by, int bz)
-{ return at(Point3i{bx, by, bz}); }
-cBlock* cChunk::at(Point3i bp)
+cBlock* cChunk::at(int bx, int by, int bz, cChunk **neighbor)
+{ return at(Point3i{bx, by, bz}, neighbor); }
+cBlock* cChunk::at(Point3i bp, cChunk **neighbor)
 {
   blockSide_t side = blockSide_t::NONE;
+
   if(bp[0] < 0)
     {
-      bp[0] += size[0];
+      bp[0] = (bp[0] + sizeX);
       side |= blockSide_t::NX;
     }
   else if(bp[0] >= size[0])
     {
-      bp[0] -= size[0];
+      bp[0] = bp[0] - sizeX;
       side |= blockSide_t::PX;
     }
   if(bp[1] < 0)
     {
-      bp[1] += size[1];
+      bp[1] = (bp[1] + sizeY);
       side |= blockSide_t::NY;
     }
   else if(bp[1] >= size[1])
     {
-      bp[1] -= size[1];
+      bp[1] = bp[1] - sizeY;
       side |= blockSide_t::PY;
     }
   if(bp[2] < 0)
     {
-      bp[2] += size[2];
+      bp[2] = (bp[2] + sizeZ);
       side |= blockSide_t::NZ;
     }
   else if(bp[2] >= size[2])
     {
-      bp[2] -= size[2];
+      bp[2] = bp[2] - sizeZ;
       side |= blockSide_t::PZ;
     }
   
-  const int bi = cChunkData::index(bp[0], bp[1], bp[2]);
-
   if(side == blockSide_t::NONE)
-    { return &mData.mData[bi]; }
+    { return &mData.mData[cChunkData::index(bp[0], bp[1], bp[2])]; }
   else
     {
       cChunk *n = mNeighbors[side];
+      if(neighbor)
+        { *neighbor = n; }
       if(n)
-        { return &n->mData.mData[bi]; }
+        { return n->at(bp[0], bp[1], bp[2]); }
       else
-        {
-          LOGD("NEIGHBOR NULL! SIDE: %X", (int)side);
-          return nullptr;
-        }
+        { return nullptr; }
     }
 }
 
@@ -101,13 +102,26 @@ block_t cChunk::get(int bx, int by, int bz) const
 block_t cChunk::get(const Point3i &bp) const
 { return mData.get(bp[0], bp[1], bp[2]); }
 
+void cChunk::setNeighborMirror(blockSide_t side, cChunk *chunk)
+{
+  mNeighbors[side] = chunk;
+}
 void cChunk::setNeighbor(blockSide_t side, cChunk *chunk)
-{ mNeighbors[side] = chunk; }
+{
+  setNeighborMirror(side, chunk);
+  if(chunk)
+    { chunk->setNeighborMirror(oppositeSide(side), this); }
+}
+void cChunk::unsetNeighborMirror(blockSide_t side)
+{
+  mNeighbors[side] = nullptr;
+  mNeighborsLoaded = false;
+}
 void cChunk::unsetNeighbor(blockSide_t side)
 {
   if(mNeighbors[side])
-    { mNeighbors[side]->mNeighbors[oppositeSide(side)] = nullptr; }
-  mNeighbors[side] = nullptr;
+    { mNeighbors[side]->unsetNeighborMirror(oppositeSide(side)); }
+  unsetNeighborMirror(side);
 }
 void cChunk::unsetNeighbors()
 {
@@ -115,6 +129,7 @@ void cChunk::unsetNeighbors()
     {
       unsetNeighbor(n.first);
     }
+  mNeighborsLoaded = false;
 }
 
 cChunk* cChunk::getNeighbor(blockSide_t side)
@@ -129,14 +144,9 @@ bool cChunk::set(int bx, int by, int bz, block_t type)
       blockSide_t side = mData.set(bx, by, bz, type);
       if(side != blockSide_t::NONE)
         {
-          cBlock *b = at(bx, by, bz);
+          cBlock *b = mData.at(bx, by, bz);
+          //if(b->type == block_t::NONE)
           Point3i p{bx, by, bz};
-          Point3i np({(bool)(side & blockSide_t::PX) ? 0 :
-                      ((bool)(side & blockSide_t::NX) ? sizeX-1 : bx),
-                      (bool)(side & blockSide_t::PY) ? 0 :
-                      ((bool)(side & blockSide_t::NY) ? sizeY-1 : by),
-                      (bool)(side & blockSide_t::PZ) ? 0 :
-                      ((bool)(side & blockSide_t::NZ) ? sizeZ-1 : bz)});
           
           for(int i = 0; i < 3; i++)
             {
@@ -147,24 +157,37 @@ bool cChunk::set(int bx, int by, int bz, block_t type)
               if(dSide != blockSide_t::NONE)
                 {
                   cChunk *n = mNeighbors[dSide];
-                  if(n)
-                    {
-                      Point3i pp = p;
-                      pp[i] = np[i];
-                      b->setActive(dSide, n->mData.get(pp[0], pp[1], pp[2]));
-                      n->mData.at(pp[0], pp[1], pp[2])->setActive(oppositeSide(dSide), b->type);
-                      n->mData.updateLighting(pp[0], pp[1], pp[2]);
-                      n->mMeshDirty = true;
-                      n->mMeshUploaded = false;
-                    }
+                  cBlock *nb = at(p + sideDirection(dSide));
+                  b->setActive(dSide, nb->type);
+                  nb->setActive(oppositeSide(dSide), b->type);
+                  n->setMeshDirty(true);
                 }
             }
-          
+
+          // update diagonal neighbors 
+          blockSide_t xSide = (side & (blockSide_t::PX | blockSide_t::NX));
+          blockSide_t ySide = (side & (blockSide_t::PY | blockSide_t::NY));
+          blockSide_t zSide = (side & (blockSide_t::PZ | blockSide_t::NZ));
+
+          if(xSide != blockSide_t::NONE)
+            {
+              if(ySide != blockSide_t::NONE)
+                {
+                  if(mNeighbors[xSide | ySide])
+                    { mNeighbors[xSide | ySide]->setMeshDirty(true); }
+                  
+                  if(zSide != blockSide_t::NONE && mNeighbors[xSide | ySide | zSide])
+                    { mNeighbors[xSide | ySide | zSide]->setMeshDirty(true); }
+                }
+              if(zSide != blockSide_t::NONE && mNeighbors[xSide | zSide])
+                { mNeighbors[xSide | zSide]->setMeshDirty(true); }
+            }
+          if(ySide != blockSide_t::NONE && zSide != blockSide_t::NONE && mNeighbors[ySide | zSide])
+            { mNeighbors[ySide | zSide]->setMeshDirty(true); }
         }
-      mData.updateLighting(bx, by, bz);
-      mDirty = true;
-      mMeshDirty = true;
-      mMeshUploaded = false;
+      setLight(false);
+      setDirty(true);
+      setMeshDirty(true);
       return true;
     }
   else
@@ -189,13 +212,41 @@ void cChunk::render()
   mMesh->render();
 }
 
-
-
-
+bool cChunk::neighborsLoaded() const
+{
+  return mNeighborsLoaded;
+}
+bool cChunk::checkNeighbors()
+{
+  if(!mNeighborsLoaded)
+    {
+      bool loaded = true; 
+      for(int i = 0; i < gBlockSides.size(); i++)
+        {
+          if(!mNeighbors[gBlockSides[i]])
+            {
+              loaded = false;
+              break;
+            }
+        }
+      if(loaded)
+        { updateBlocks(); }
+      mNeighborsLoaded = loaded;
+    }  
+  return mNeighborsLoaded;
+}
 bool cChunk::isLoaded() const
 { return mLoaded; }
-void cChunk::setLoaded(bool loaded)
-{ mLoaded = loaded; }
+void cChunk::setLoaded(bool loaded, bool reset)
+{
+  mLoaded = loaded;
+  if(!mLoaded)
+    {
+      mNeighborsLoaded = false;
+      setMeshDirty(true);
+      setMeshUploaded(false);
+    }
+}
 bool cChunk::isDirty() const
 { return mDirty; }
 void cChunk::setDirty(bool dirty)
@@ -203,7 +254,11 @@ void cChunk::setDirty(bool dirty)
 bool cChunk::meshDirty() const
 { return mMeshDirty; }
 void cChunk::setMeshDirty(bool dirty)
-{ mMeshDirty = dirty; }
+{
+  mMeshDirty = dirty;
+  if(dirty)
+    { mMeshUploaded = false; }
+}
 bool cChunk::meshUploaded() const
 { return mMeshUploaded; }
 void cChunk::setMeshUploaded(bool uploaded)
@@ -212,33 +267,58 @@ void cChunk::setMeshUploaded(bool uploaded)
 
 void cChunk::updateBlocks()
 {
-  /*
   for(int by = 0; by < sizeY; by++)
     for(int bz = 0; bz < sizeZ; bz++)
       for(int bx = 0; bx < sizeX; bx++)
         {
           blockSide_t edges = mData.chunkEdge(bx, by, bz);
-          cBlock *b = mData.at(bx, by, bz);
-          cChunk *n = mNeighbors[edges];
-          if(n)
+
+          /*
+          if(edges != blockSide_t::NONE)
             {
-              const Point3i np({(bool)(edges & blockSide_t::PX) ? sizeX-1 :
-                                ((bool)(edges & blockSide_t::NX) ? 0 : bx),
-                                (bool)(edges & blockSide_t::PY) ? sizeY-1 :
-                                ((bool)(edges & blockSide_t::NY) ? 0 : by),
-                                (bool)(edges & blockSide_t::PZ) ? sizeZ-1 :
-                                ((bool)(edges & blockSide_t::NZ) ? 0 : bz) });
-              if(sumBits((int)edges) == 1)
+              cBlock *b = mData.at(bx, by, bz);
+              b->updateOcclusion();
+              
+              for(int i = 0; i < 3; i++)
                 {
-                  b->setActive(edges, n->mData.get(np[0], np[1], np[2]));
-                  n->mData.at(np[0], np[1], np[2])->setActive(oppositeSide(edges), b->type);
+                  blockSide_t dSide = (i==0 ? (edges & (blockSide_t::PX | blockSide_t::NX)) :
+                                       (i==1 ? (edges & (blockSide_t::PY | blockSide_t::NY)) :
+                                        (edges & (blockSide_t::PZ | blockSide_t::NZ))));
+              
+                  if(dSide != blockSide_t::NONE)
+                    {
+                      cBlock *nb = at(Point3i{bx, by, bz} + sideDirection(dSide));
+                      b->setActive(dSide, nb->type);
+                      nb->setActive(oppositeSide(dSide), b->type);
+                      mNeighbors[dSide]->setMeshDirty(true);
+                    }
                 }
-              n->mData.updateLighting(np[0], np[1], np[2]);
+              
+              // update diagonal neighbors 
+              blockSide_t xSide = (edges & (blockSide_t::PX | blockSide_t::NX));
+              blockSide_t ySide = (edges & (blockSide_t::PY | blockSide_t::NY));
+              blockSide_t zSide = (edges & (blockSide_t::PZ | blockSide_t::NZ));
+
+              if(xSide != blockSide_t::NONE)
+                {
+                  if(ySide != blockSide_t::NONE)
+                    {
+                      if(mNeighbors[xSide | ySide])
+                        { mNeighbors[xSide | ySide]->setMeshDirty(true); }
+                  
+                      if(zSide != blockSide_t::NONE && mNeighbors[xSide | ySide | zSide])
+                        { mNeighbors[xSide | ySide | zSide]->setMeshDirty(true); }
+                    }
+                  if(zSide != blockSide_t::NONE && mNeighbors[xSide | zSide])
+                    { mNeighbors[xSide | zSide]->setMeshDirty(true); }
+                }
+              if(ySide != blockSide_t::NONE && zSide != blockSide_t::NONE && mNeighbors[ySide | zSide])
+                { mNeighbors[ySide | zSide]->setMeshDirty(true); }
             }
-          mData.updateLighting(bx, by, bz);
+          */
         }
-  */
   mData.updateBlocks();
+  setMeshDirty(true);
 }
 
 // TODO: Run length encoding
@@ -259,17 +339,12 @@ void cChunk::deserialize(const uint8_t *dataIn, int bytes)
     {
       block.deserialize((dataIn + offset), cBlock::dataSize);
       offset += cBlock::dataSize;
-      if(offset + cBlock::dataSize >= bytes)
+      if(offset >= bytes)
         { break; }
     }
-  
-  for(int by = 0; by < sizeY; by++)
-    for(int bz = 0; bz < sizeZ; bz++)
-      for(int bx = 0; bx < sizeX; bx++)
-        { updateLighting(bx, by, bz); }
-  
-  // update active sides
-  updateBlocks();
+
+  for(int bi = 0; bi < cChunkData::totalSize; bi++)
+    { mData.mData[bi].updateOcclusion(); }
 }
 
 std::string cChunk::toString() const
@@ -285,9 +360,9 @@ std::ostream& operator<<(std::ostream &os, const cChunk &chunk)
 
 #define NEIGHBOR_TEX false
 
-void cChunk::updateLighting(int bx, int by, int bz)
+void cChunk::updateOcclusion(int bx, int by, int bz)
 {
-  mData.updateLighting(bx, by, bz);
+  mData.updateOcclusion(bx, by, bz);
 }
 
 
@@ -299,14 +374,174 @@ inline blockSide_t dimSide(int dim, int sign)
 
 inline int getAO(int e1, int e2, int c)
 {
-  if(e1 == 0 && e2 == 0)
-    { return 0; }
+  if(e1 == 1 && e2 == 1)
+    { return 3; }
   else
     { return (e1 + e2 + c); }
 }
 
-uint8_t cChunk::getLighting(const Point3i &bp, const Point3i &vp, blockSide_t side)
+
+void cChunk::updateLighting(int lighting)
 {
+  //if(isLight())
+  //{ return; }
+
+  //LOGD("%d", lighting);
+  
+  int startZ = sizeZ;
+  if(!mNeighbors[blockSide_t::PZ])
+    { // nobody above, so assume it's open air.
+      startZ--;
+      for(int x = 0; x < sizeX; x++)
+        for(int y = 0; y < sizeY; y++)
+          { mData.mData[cChunkData::index(x, y, startZ)].setLighting(lighting); }
+    }
+  else
+    {
+      startZ--;
+      for(int x = 0; x < sizeX; x++)
+        for(int y = 0; y < sizeY; y++)
+          { mData.mData[cChunkData::index(x, y, startZ)].setLighting(mNeighbors[blockSide_t::PZ]->at(Point3i{x, y, 0})->lightLevel); }
+    }
+  
+  std::unordered_set<int> traversed;
+  std::vector<Point3i> spread;
+  spread.reserve(sizeX*sizeY);
+    
+  for(int x = 0; x < sizeX; x++)
+    for(int y = 0; y < sizeY; y++)
+      {
+        spread.push_back(Point3i{x, y, startZ});
+        traversed.insert(hashBlock(x, y, startZ));
+      }
+
+  std::vector<Point3i> nextSpread;
+  nextSpread.reserve(sizeX*sizeY);
+  while(spread.size() > 0)
+    {
+      //LOGD("SPREAD SIZE: %d", spread.size());
+      for(auto &p : spread)
+        {
+          cChunk *neighbor = nullptr;
+          cBlock *b = at(p, &neighbor);
+          if(neighbor)
+            { neighbor->setMeshDirty(true); }
+
+          //LOGD("Block: (%d, %d, %d) --> %d : LIGHTING: %d, OCCLUSION: %d", p[0], p[1], p[2], (int)b->type, (int)b->lightLevel, (int)b->occlusion);
+          
+          // start with adjacent blocks (same z)
+          for(int dx = -1; dx <= 1; dx++)
+            for(int dy = -1; dy <= 1; dy++)
+              {
+                Point3i p2{p[0]+dx, p[1]+dy, p[2]};
+                if(traversed.count(hashBlock(p2)) == 0)
+                  {
+                    cBlock *b2 = at(p2);
+                    if(b2)
+                      {
+                        int l = b->lightLevel-1;
+                        if(dx && dy)
+                          { // account for occlusion from adjacent blocks
+                            cBlock *edge1 = at(p[0]+dx, p[1], p[2]);
+                            cBlock *edge2 = at(p[0], p[1]+dy, p[2]);
+                            int occlusion = 0;
+                            if(edge1) { occlusion += edge1->occlusion; }
+                            if(edge2) { occlusion += edge2->occlusion; }
+                            if(occlusion == 1)
+                              { l /= 2; }
+                            else if(occlusion == 2)
+                              { l = 0; }
+                          } // otherwise no occlusion
+
+                        if(b->lightLevel < l)
+                        {
+                          b2->setLighting(l);
+                          if(b2->lightLevel > 0)
+                            {
+                              nextSpread.push_back(p2);
+                              traversed.insert(hashBlock(p2));
+                            }
+                        }
+                      }
+                  }
+              }
+          
+          if(b->type != block_t::NONE)
+            { continue; }
+            
+          // now propogate to z-1
+          for(int dx = -1; dx <= 1; dx++)
+            for(int dy = -1; dy <= 1; dy++)
+              {
+                Point3i p2{p[0]+dx, p[1]+dy, p[2]-1};
+                if(traversed.count(hashBlock(p2)) == 0)
+                  {
+                    cBlock *b2 = at(p2);
+                    if(b2)
+                      {
+                        int l = b->lightLevel;
+                        if(dx && dy)
+                          { // account for occlusion from adjacent blocks
+                            cBlock *edge1 = at(p[0]+dx, p[1], p[2]);
+                            cBlock *edge2 = at(p[0], p[1]+dy, p[2]);
+                            cBlock *lowEdge1 = at(p[0]+dx, p[1], p[2]-1);
+                            cBlock *lowEdge2 = at(p[0], p[1]+dy, p[2]-1);
+                            int occlusion = 0;
+                            if(edge1) { occlusion += edge1->occlusion; }
+                            if(edge2) { occlusion += edge2->occlusion; }
+                            if(lowEdge1) { occlusion += lowEdge1->occlusion; }
+                            if(lowEdge2) { occlusion += lowEdge2->occlusion; }
+                            if(occlusion == 1)
+                              { l -= 2; }
+                            else if(occlusion == 2)
+                              { l /= 2; }
+                            else if(occlusion == 3)
+                              { l /= 4; }
+                            else if(occlusion == 4)
+                              { l = 0; }
+                          }
+                        else if(dx)
+                          {
+                            cBlock *edge1 = at(p[0]+dx, p[1], p[2]);
+                            if(edge1)
+                              { l /= 2; }
+                          }
+                        else if(dy)
+                          {
+                            cBlock *edge2 = at(p[0], p[1]+dy, p[2]);
+                            if(edge2)
+                              { l /= 2; }
+                          } // otherwise right below
+
+                        if(b2->lightLevel < l)
+                        {
+                          b2->setLighting(l);
+                          if(b2->lightLevel > 0)
+                            {
+                              nextSpread.push_back(p2);
+                            }
+                          traversed.insert(hashBlock(p2));
+                        }
+                      }
+                  }
+              }
+          
+        }
+      spread = nextSpread;
+      nextSpread.clear();
+    }
+
+  setLight(true);
+  setMeshDirty(true);
+
+  updateBelow();
+}
+
+int8_t cChunk::getLighting(const Point3i &bp, const Point3i &vp, blockSide_t side)
+{
+  if(!mNeighborsLoaded)
+    { return 0; }
+  
   blockSide_t nSides = mData.chunkEdge(bp[0], bp[1], bp[2]);
   
   if(nSides != blockSide_t::NONE)
@@ -329,24 +564,23 @@ uint8_t cChunk::getLighting(const Point3i &bp, const Point3i &vp, blockSide_t si
       
       cBlock *adj = at(bi);
       if(adj)
-        { lc = adj->lightLevel; }
+        { lc = adj->occlusion; }
       
       bi[dim1] = bp[dim1];
       adj = at(bi);
       if(adj)
-        { le1 = adj->lightLevel; }
+        { le1 = adj->occlusion; }
       
       bi[dim1] = e1;
       bi[dim2] = bp[dim2];
       adj = at(bi);
       if(adj)
-        { le2 = adj->lightLevel; }
+        { le2 = adj->occlusion; }
       
-      return getAO(le1, le2, lc);
+      return at(bp)->lightLevel - getAO(le1, le2, lc);
     }
   else
     {
-      //LOGD("Got lighting (inside).");
       return mData.getLighting(bp[0], bp[1], bp[2], vp[0], vp[1], vp[2], side);
     }
 }
@@ -423,12 +657,14 @@ void cChunk::updateMesh()
 		      for(auto &v : f.second)
 			{
                           const int lighting = getLighting(bp, v.pos, f.first);
+                          if(lighting > MAX_LIGHT_LEVEL)
+                            { std::cout << lighting << "\n"; }
                           //LOGD("VERTEX -> %f, %f, %f", v.pos[0], v.pos[1], v.pos[2]);
                           mVert.emplace_back(v.pos + vOffset,
                                              v.normal,
                                              v.texcoord,
                                              (int)block->type - 1,
-                                             lighting / 3.0f );
+                                             (float)lighting / (float)MAX_LIGHT_LEVEL );
                           if(vn < 2)
                             { sum0 += lighting; }
                           else
@@ -451,9 +687,42 @@ void cChunk::updateMesh()
           // TODO: Complex blocks
         }
   //LOGD("CHUNK MESH UPDATE FINISHED --> %d", mInd.size());
+  mMeshUploaded = false;
 }
 
 void cChunk::uploadMesh()
 {
   mMesh->finishUpdating(mInd.size(), mVert, mInd);
 }
+
+void cChunk::clearMesh()
+{
+  mVert.clear();
+  mInd.clear();
+}
+
+
+int cChunk::chunkX(int wx)
+{ return wx >> cChunkData::shiftX; }
+int cChunk::chunkY(int wy)
+{ return wy >> cChunkData::shiftY; }
+int cChunk::chunkZ(int wz)
+{ return wz >> cChunkData::shiftZ; }
+Point3i cChunk::chunkPos(const Point3i &wp)
+{ return Point3i({chunkX(wp[0]), chunkY(wp[1]), chunkZ(wp[2])}); }
+
+
+ 
+inline int cChunk::expand(int x)
+{
+  x                  &= 0x000003FF;
+  x  = (x | (x<<16)) &  0xFF0000FF;
+  x  = (x | (x<<8))  &  0x0F00F00F;
+  x  = (x | (x<<4))  &  0xC30C30C3;
+  x  = (x | (x<<2))  &  0x49249249;
+  return x;
+}
+inline int cChunk::hashBlock(int bx, int by, int bz)
+{ return expand(bx) + (expand(by) << 1) + (expand(bz) << 2); }
+inline int cChunk::hashBlock(const Point3i &bp)
+{ return hashBlock(bp[0], bp[1], bp[2]); }

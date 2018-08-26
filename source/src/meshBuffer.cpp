@@ -92,11 +92,11 @@ void cMeshBuffer::render()
   if(mVbo && mIbo && mVao && mNumDraw > 0)
   {
     mVao->bind();
-    mIbo->bind();
-    mVbo->bind();
+    //mIbo->bind();
+    //mVbo->bind();
     glDrawElements(GL_TRIANGLES, mNumDraw, GL_UNSIGNED_INT, 0);
-    mVbo->release();
-    mIbo->release();
+    //mVbo->release();
+    //mIbo->release();
     mVao->release();
 
     //glFinish();

@@ -180,3 +180,12 @@ void cShader::setUniform(const std::string &name, int val)
 {
   glUniform1i(mUniforms[name], val);
 }
+void cShader::setUniform(const std::string &name, float val)
+{
+  glUniform1f(mUniforms[name], val);
+}
+
+void cShader::setUniform(const std::string &name, const Point3f &v)
+{
+  glUniform3f(mUniforms[name], v[0], v[1], v[2]);
+}

@@ -126,7 +126,7 @@ bool cChunkLoader::createWorld(const std::string &worldName, uint32_t seed)
       return false;
     }
   // write header
-  wDesc::Header worldHeader(Vector<uint8_t, 4>{0,0,1,0}, cBlock::dataSize, terrain_t::PERLIN_CHUNK, seed);
+  wDesc::Header worldHeader(Vector<uint8_t, 4>{0,0,1,0}, cBlock::dataSize, terrain_t::PERLIN, seed);
   worldFile.write(reinterpret_cast<char*>(&worldHeader), sizeof(wDesc::Header));
   
   return true;
@@ -214,13 +214,13 @@ void cChunkLoader::loadDirect(chunkPtr_t chunk)
   
   cRegionFile *rFile = nullptr;
   {
-    //LOGD("CHUNK LOADER FINDING REGION");
     std::lock_guard<std::mutex> rlock(mRegionLock);
     auto iter = mRegionLookup.find(hashRegion(rPos));
     if(iter != mRegionLookup.end())
-      { rFile = iter->second; }
+      {
+        rFile = iter->second;
+      }
   }
-
       
   if(!rFile || !rFile->readChunk(chunk))
     { // chunk not in file -- needs to be generated.
@@ -360,9 +360,9 @@ void cChunkLoader::checkLoad(int tid)
     {
       LOGD("CHUNK LOADER THREAD LOAD");
       const Point3i cPos = chunk->pos();
-  const Point3i rPos({ cPos[0] >> 4,
-                       cPos[1] >> 4,
-                       cPos[2] >> 4 });
+      const Point3i rPos({ cPos[0] >> 4,
+                           cPos[1] >> 4,
+                           cPos[2] >> 4 });
       cRegionFile *rFile = nullptr;
       {
         std::lock_guard<std::mutex> rlock(mRegionLock);
@@ -379,6 +379,7 @@ void cChunkLoader::checkLoad(int tid)
               std::vector<uint8_t> chunkData(cChunk::totalSize * cBlock::dataSize);
               mTerrainGen.generate(chunk->pos(), mHeader.terrain, chunkData);
               chunk->deserialize(chunkData.data(), chunkData.size());
+              //chunk->updateBlocks();
             }
         }
       // done with chunk

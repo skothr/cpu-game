@@ -13,10 +13,10 @@ TARGET = cpugame
 TEMPLATE = app debug_and_release
 
 CONFIG += c++1z warn_off debug_and_release
-LIBS += -lstdc++fs #-pg
+LIBS += -lstdc++fs -pg
 
 # sources
-HEADERS += source/inc/glWidget.hpp source/inc/gameWidget.hpp source/inc/mainWindow.hpp source/inc/shader.hpp source/inc/textureAtlas.hpp source/inc/overlay.hpp
+HEADERS += source/inc/glWidget.hpp source/inc/gameWidget.hpp source/inc/mainWindow.hpp source/inc/shader.hpp source/inc/textureAtlas.hpp source/inc/overlay.hpp source/inc/controlInterface.hpp
 SOURCES += source/src/*.cpp
 
 # Paths

@@ -23,6 +23,11 @@ public:
     mData.resize(mSize);
   }
 
+  T& staticAccess(int index)
+  { return mData[index]; }
+  const T& staticAccess(int index) const
+  { return mData[index]; }
+
   void rotate(int num)
   {
     mOffset = (mOffset + num + mSize) % mSize;

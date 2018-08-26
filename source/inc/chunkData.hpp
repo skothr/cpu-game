@@ -68,7 +68,7 @@ private:
   inline void updateSide(int bx, int by, int bz, int bi, blockSide_t side);
   inline void updateSide(int bx, int by, int bz, blockSide_t side);
   
-  void updateLighting(int bx, int by, int bz);
+  void updateOcclusion(int bx, int by, int bz);
 
   static int shiftPX(int bx);
   static int shiftPY(int by);

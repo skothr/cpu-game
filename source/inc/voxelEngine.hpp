@@ -18,6 +18,9 @@ class QObject;
 class cVoxelEngine
 {
 public:
+  
+  static const int mLightLevels = 16;
+  
   cVoxelEngine(QObject *qParent = nullptr, int numThreads = 1, const std::string &worldName = "",
                uint32_t seed = 0);
   ~cVoxelEngine();
@@ -32,6 +35,8 @@ public:
 
   void startPhysics(int stepTimeMs);
   void stopPhysics();
+
+  void setLightLevel(int lightLevel);
   
   struct ProjDesc
   {

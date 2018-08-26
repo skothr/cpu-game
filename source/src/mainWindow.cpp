@@ -3,10 +3,13 @@
 #include "gameWidget.hpp"
 #include "notifySlider.hpp"
 #include "overlay.hpp"
+#include "controlInterface.hpp"
 
+#include <QStackedLayout>
 #include <QGridLayout>
 #include <QVBoxLayout>
 #include <QLabel>
+#include <QRadioButton>
 
 #include <iostream>
 
@@ -21,34 +24,41 @@ cMainWindow::cMainWindow(QWidget *parent, int numThreads, const std::string &wor
   mGame = new cGameWidget(this, numThreads, worldName, seed);
   connect(mGame, SIGNAL(posChanged(Point3f, Point3i, Point3i)),
           this, SLOT(setPosition(Point3f, Point3i, Point3i)));
+  connect(mGame, SIGNAL(blockInfo(block_t, int)),
+          this, SLOT(setBlockInfo(block_t, int)));
+  
 
   mOverlay = new cOverlay(this, {LabelDesc("POSITION", (align_t)(align_t::TOP)),
-                                 LabelDesc("CHUNK", (align_t)(align_t::TOP))});
+                                 LabelDesc("CHUNK", (align_t)(align_t::TOP)),
+                                 LabelDesc("BLOCK", (align_t)(align_t::TOP)),
+                                 LabelDesc("LIGHT", (align_t)(align_t::TOP))});
 
   mOverlay->raise();
   //mChunkLabel->raise();
   
-  // LAYOUT
-  mMainLayout = new QStackedLayout(this);
-  mMainLayout->setStackingMode(QStackedLayout::StackAll);
+  // game viewport layout
+  mGameLayout = new QStackedLayout();
+  mGameLayout->setStackingMode(QStackedLayout::StackAll);
   //mMainLayout->setMargin(MARGIN);
-  mMainLayout->addWidget(mOverlay);
-  mMainLayout->addWidget(mGame);
+  mGameLayout->addWidget(mOverlay);
+  mGameLayout->addWidget(mGame);
+
+  // control layouts
+  mBottomControl = new cControlInterface(mGame->getEngine());
+
+  // add to main grid layout
+  mMainLayout = new QGridLayout(this);
+  mMainLayout->setSpacing(0);
+  mMainLayout->setMargin(0);
+  mMainLayout->addLayout(mGameLayout, 0, 0, 4, 4);
+  mMainLayout->addWidget(mBottomControl, 2, 0, 2, 4, Qt::AlignBottom);
   
   setLayout(mMainLayout);
 }
 
 cMainWindow::~cMainWindow()
 {
-  std::cout << "~cMainWindow()...\n";
-  /*
-  LOGD("deleting game...");
-  if(mGame)
-    { delete mGame; }
-  LOGD("deleting main layout...");
-  if(mMainLayout)
-    { delete mMainLayout; }
-  */
+  
 }
 void cMainWindow::setTimestep(int timestepMs)
 {
@@ -80,17 +90,52 @@ void cMainWindow::setPosition(Point3f player, Point3i collisions, Point3i chunk)
   cl->setText(ss.str().c_str());
 }
 
+void cMainWindow::setBlockInfo(block_t type, int lightLevel)
+{
+  QLabel *tl = mOverlay->getLabel(2);
+  QLabel *ll = mOverlay->getLabel(3);
+  tl->setText(("BLOCK TYPE: " + toString(type)).c_str());
+  std::stringstream ss;
+  ss << "LIGHT LEVEL:     " << lightLevel;
+  ll->setText(ss.str().c_str());
+}
+
 void cMainWindow::keyPressEvent(QKeyEvent *event)
 {
   switch(event->key())
     {
-    case Qt::Key_Escape:   // Quit propgram.
+    case Qt::Key_Escape:   // quit program
       LOGI("Escape pressed (cMainWindow).");
       close();
-      LOGI("Window closed.");
+      event->accept();
+      break;
+    case Qt::Key_X:   // toggle mouse capture
+      mGame->captureMouse(!mGame->getMouseCaptured());
+      if(mGame->getMouseCaptured())
+        {
+          LOGI("Captured mouse!");
+          mBottomControl->collapse();
+        }
+      else
+        {
+          LOGI("Released mouse!");
+          mBottomControl->expand();
+        }
+      event->accept();
       break;
 
     default:
+      event->ignore();
       break;
     }
 }
+
+void cMainWindow::toolSelected(int id, bool checked)
+{
+  if(checked)
+    {
+      mGame->setTool((block_t)id);
+    }
+}
+
+    

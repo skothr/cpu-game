@@ -82,7 +82,7 @@ namespace wData
   struct ChunkInfo
   {
     uint32_t offset = 0;    // byte offset of start of chunk data starting from end of lookup table
-    uint16_t chunkSize = 0; // number of used bytes in chunk data
+    uint32_t chunkSize = 0; // number of used bytes in chunk data
   }; // repeated once for every chunk
   // followed by chunk data
 }

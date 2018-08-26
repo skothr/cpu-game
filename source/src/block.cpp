@@ -1,13 +1,11 @@
 #include "block.hpp"
 #include "world.hpp"
 
+void cBlock::updateOcclusion()
+{
+  occlusion = ((type == block_t::NONE) ? 0 : 1);
+}
 
-/*
-inline bool cBlock::dirty() const
-{ return dirtySides != blockSide_t::NONE; }
-inline bool cBlock::dirty(blockSize_t side) const
-{ return (dirtySides & side) != blockSide_t::NONE; }
-*/
 bool cBlock::active() const
 { return type != block_t::NONE && activeSides != blockSide_t::NONE; }
 bool cBlock::active(blockSide_t side) const
@@ -32,4 +30,5 @@ int cBlock::serialize(uint8_t *dataOut) const
 void cBlock::deserialize(const uint8_t *dataIn, int bytes)
 {
   std::memcpy((void*)&data, (void*)dataIn, bytes);
+  activeSides = blockSide_t::NONE;
 }

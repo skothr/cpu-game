@@ -38,7 +38,7 @@ public:
   cChunk* getChunk(const Point3i &p);
   
   bool rayCast(const Point3f &p, const Vector3f &d, float radius,
-	       block_t &blockOut, Point3i &posOut, Vector3i &faceOut );
+	       cBlock* &blockOut, Point3i &posOut, Vector3i &faceOut );
   
   void initGL(QObject *qparent);
   void cleanupGL();
@@ -55,6 +55,12 @@ public:
 
   bool readyForPlayer() const;
   Point3f getStartPos(const Point3i &pPos);
+
+  void setCamPos(const Point3f &pos)
+  { mChunks.setCamPos(pos); }
+
+  void setLightLevel(int level)
+  { mChunks.setLighting(level); }
   
 private:
   cChunkManager mChunks;
