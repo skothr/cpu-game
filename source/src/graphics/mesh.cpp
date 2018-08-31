@@ -91,7 +91,7 @@ void cMesh::cleanupGL()
 }
 
 // make sure to call this from the OpenGL thread!
-bool cMesh::initGL(cShader *shader)
+bool cMesh::initGL(Shader *shader)
 {
   if(!mLoaded)
     {
@@ -206,7 +206,7 @@ void cMesh::setUpdatedData()
 bool cMesh::initialized() const
 { return mLoaded; }
 
-void cMesh::render(cShader *shader)
+void cMesh::render(Shader *shader)
 {
   //std::lock_guard<std::mutex> lock(*mRenderLock);
   if(mVertices.size() > 0 && mIndices.size() > 0)

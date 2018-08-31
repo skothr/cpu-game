@@ -80,14 +80,14 @@ Matrix4 Camera::getView()
 
 
 Player::Player(QObject *qparent, Vector3f pos, Vector3f forward, Vector3f up, World *world,
-                 Vector3f eyeOffset, float reach )
+               Vector3f eyeOffset, float reach )
   : Camera(pos, forward, up, eyeOffset), mWorld(world), mReach(reach),
     mHighlightModel("./res/highlight.obj")
 {
   Point3f ppos = mBox.center();
   //mWorld->setCenter(Point3i{std::floor(ppos[0]), std::floor(ppos[1]), std::floor(ppos[2])} / 16);
   
-  mWireShader = new cShader(qparent);
+  mWireShader = new Shader(qparent);
 }
 
 Player::~Player()
@@ -119,7 +119,7 @@ void Player::select(const Point2f &pos, const Matrix4 &proj)
     }
 }
 
-cBlock* Player::selectedBlock()
+CompleteBlock Player::selectedBlock()
 {
   return mSelectedBlock;
 }
@@ -131,7 +131,7 @@ bool Player::pickUp()
       LOGD("PLAYER GOT BLOCK! --> %d", (int)mSelectedType);
       onPickup(mSelectedType);
       std::cout << "SP: " << mSelectedPos << "\n";
-      mWorld->set(mSelectedPos, block_t::NONE);
+      mWorld->setBlock(mSelectedPos, block_t::NONE);
       mSelectedType = block_t::NONE;
     }
   
@@ -140,16 +140,17 @@ bool Player::pickUp()
 
 void Player::place()
 {
-  block_t block = onPlace();
-  if(block != block_t::NONE)
+  CompleteBlock block = onPlace();
+  if(block.type != block_t::NONE)
     {
       if(mSelectedType != block_t::NONE)
 	{
-	  if(!mBox.collidesEdge(cBoundingBox(mSelectedPos + mSelectedFace + Vector3f{0.5, 0.5, 0.5}, Vector3f{1, 1, 1})))
+	  if(!mBox.collidesEdge(cBoundingBox(mSelectedPos + mSelectedFace + Vector3f{0.5, 0.5, 0.5},
+                                             Vector3f{1, 1, 1} )))
 	    {
 	      LOGD("PLAYER PLACED BLOCK at: ");
 	      std::cout << mSelectedPos << " (face " << mSelectedFace << ")\n";
-	      mWorld->set(mSelectedPos + mSelectedFace, block);
+	      mWorld->setBlock(mSelectedPos + mSelectedFace, block.type, block.data);
 	    }
 	}
     }
@@ -186,23 +187,15 @@ void Player::render(Matrix4 pvm)
     {
       //LOGD("PLAYER NO BLOCK");
       mSelectedType = block_t::NONE;
-      mSelectedBlock = nullptr;
+      mSelectedBlock = {block_t::NONE, nullptr};
     }
   else
     {
-      //LOGD("PLAYER GOT BLOCK");
+      mSelectedType = mSelectedBlock.type;
     }
+
   
-  if(mSelectedBlock)
-    {
-      //LOGD("PLAYER GETTING TYPE");
-      mSelectedType = mSelectedBlock->type;
-      //LOGD("PLAYER DONE GETTING TYPE");
-    }
-  else
-    { mSelectedType = block_t::NONE; }
-  
-  if(mSelectedBlock) //mSelectedType != block_t::NONE)
+  if(mSelectedBlock.type != block_t::NONE) //mSelectedType != block_t::NONE)
     {
       //LOGD("PLAYER RENDERING WIRE");
       mWireShader->bind();
@@ -326,7 +319,7 @@ void Player::update(double dt)
 	  for(bPos[i1] = bMin[i1]; bPos[i1] <= bMax[i1] && !hit; bPos[i1]++)
             for(bPos[i2] = bMin[i2]; bPos[i2] <= bMax[i2] && !hit; bPos[i2]++)
               {
-                if(mWorld->get(bPos) != block_t::NONE)
+                if(mWorld->getType(bPos) != block_t::NONE)
                   { // still grounded -- correct position
                     hit = true;
                     mVel[i] = 0.0;
@@ -366,7 +359,7 @@ void Player::update(double dt)
 	  for(bPos[i1] = bMin[i1]; bPos[i1] <= bMax[i1] && !hit; bPos[i1]++)
             for(bPos[i2] = bMin[i2]; bPos[i2] <= bMax[i2] && !hit; bPos[i2]++)
               {
-                if(mWorld->get(bPos) != block_t::NONE)
+                if(mWorld->getType(bPos) != block_t::NONE)
                   { // direction is grounded
                     hit = true;
                     mIsGrounded[i] = true;
@@ -425,26 +418,28 @@ void GodPlayer::onUpdate(double dt)
   //mMoveForce[2] = -GRAVITY*dt;
 }
 
-void GodPlayer::setPlaceBlock(block_t type)
+void GodPlayer::setPlaceBlock(block_t type, BlockData *data)
 {
-  mPlaceBlock = type;
+  LOGD("PLAYER SETTING PLACE BLOCK %s", toString(type).c_str());
+  mPlaceBlock = {type, data ? data->copy() : nullptr};
+  LOGD("DONE");
 }
 void GodPlayer::nextPlaceBlock()
 {
-  mPlaceBlock = (block_t)(((int)mPlaceBlock + 1) % (int)simple_t::END);
-  LOGD("Selected tool: %d", (int)mPlaceBlock);
+  mPlaceBlock.type = (block_t)(((int)mPlaceBlock.type + 1) % (int)simple_t::END);
+  LOGD("Selected tool: %d", (int)mPlaceBlock.type);
 }
 void GodPlayer::prevPlaceBlock()
 {
-  mPlaceBlock = (block_t)(((int)mPlaceBlock - 1 + (int)simple_t::END) % (int)simple_t::END);
-  LOGD("Selected tool: %d", (int)mPlaceBlock);
+  mPlaceBlock.type = (block_t)(((int)mPlaceBlock.type - 1 + (int)simple_t::END) % (int)simple_t::END);
+  LOGD("Selected tool: %d", (int)mPlaceBlock.type);
 }
 
 void GodPlayer::onPickup(block_t type)
 {
 
 }
-block_t GodPlayer::onPlace()
+CompleteBlock GodPlayer::onPlace()
 {
   return mPlaceBlock;
 }
@@ -459,7 +454,7 @@ block_t GodPlayer::onPlace()
 FpsPlayer::FpsPlayer(QObject *qparent, Vector3f pos, Vector3f forward, Vector3f up, World *world)
   : Player(qparent, pos, forward, up, world, Vector3f{0, 0, EYE_HEIGHT - PLAYER_SIZE[2]*0.5f}, 4.0f) // short reach
 {
-
+  
 }
 
 
@@ -489,9 +484,10 @@ void FpsPlayer::onPickup(block_t type)
 {
   mInventory.push(type);
 }
-block_t FpsPlayer::onPlace()
+CompleteBlock FpsPlayer::onPlace()
 {
   block_t b = mInventory.front();
   mInventory.pop();
-  return b;
+  mNextBlock = b;
+  return {mNextBlock, nullptr};
 }

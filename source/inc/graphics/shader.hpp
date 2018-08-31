@@ -14,13 +14,13 @@
 
 //class QOpenGLShaderProgram;
 
-class cShader : public QObject, protected QOpenGLFunctions_4_3_Core
+class Shader : public QObject, protected QOpenGLFunctions_4_3_Core
 {
   Q_OBJECT
 public:
-  cShader();
-  cShader(QObject *parent);
-  virtual ~cShader() { };
+  Shader();
+  Shader(QObject *parent);
+  virtual ~Shader() { };
   bool loadProgram(const std::string &vshFile,
 		   const std::string &fshFile,
 		   const std::vector<std::string> &attributes,

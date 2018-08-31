@@ -14,9 +14,9 @@ class cModelObj
 public:
   cModelObj(const std::string &filePath = "");
   cModelObj(const cModelObj &other) = default;
-  bool initGL(cShader *shader);
+  bool initGL(Shader *shader);
   void cleanupGL();
-  void render(cShader *shader, const Matrix4 &pvm);
+  void render(Shader *shader, const Matrix4 &pvm);
 
   void setMode(GLenum mode);
   

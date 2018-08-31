@@ -2,6 +2,8 @@
 #define CONTROL_INTERFACE_HPP
 
 #include <QWidget>
+#include "block.hpp"
+#include "world.hpp"
 
 class QGridLayout;
 class QVBoxLayout;
@@ -29,12 +31,16 @@ protected slots:
   void setLightLevel(int level);
   void setWireframe(int wireframe);
   void setDebug(int debug);
+  void setFluidSim(int on);
+  void setFluidEvap(int on);
+  void setFluidLevel(int level);
 
 protected:
   
   
 private:
   VoxelEngine *mEngine = nullptr;
+  World *mWorld = nullptr;
   QGridLayout *mMainLayout = nullptr;
 
   QTabBar *mControlTabs = nullptr;
@@ -44,12 +50,8 @@ private:
   // active material selection tab
   QWidget *mMaterialWidget = nullptr;
   QGridLayout *mMaterialLayout = nullptr;
-  QButtonGroup *mSimpleGroup = nullptr;
-  QButtonGroup *mComplexGroup = nullptr;
-  QButtonGroup *mFluidGroup = nullptr;
-  QGroupBox* makeSimpleGroup();
-  QGroupBox* makeComplexGroup();
-  QGroupBox* makeFluidGroup();
+  QButtonGroup *mMaterialGroup = nullptr;
+  QGroupBox* makeMaterialGroup();
 
   // physics control tab
   QWidget *mPhysicsWidget = nullptr;
@@ -68,6 +70,9 @@ private:
   QGridLayout *mDebugLayout = nullptr;
   QButtonGroup *mDebugGroup = nullptr;
   QGroupBox* makeDebugGroup();
+
+  block_t mTool = block_t::NONE;
+  float mFluidLevel = 0.0f;
 };
 
 #endif // CONTROL_INTERFACE_HPP

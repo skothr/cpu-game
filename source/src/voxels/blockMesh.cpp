@@ -2,29 +2,29 @@
 
 
 
-cBlockMesh::cBlockMesh()
+BlockMesh::BlockMesh()
 {
 
 }
 
-cBlockMesh::cBlockMesh(const std::vector<cSimpleVertex> &vertices)
+BlockMesh::BlockMesh(const std::vector<cSimpleVertex> &vertices)
   : mVertices(vertices)
 { }
 
-cBlockMesh::~cBlockMesh()
+BlockMesh::~BlockMesh()
 {
   
 }
 
 
-bool cBlockMesh::setMesh(const std::vector<cSimpleVertex> &vertices)
+bool BlockMesh::setMesh(const std::vector<cSimpleVertex> &vertices)
 {
   mVertices = vertices;
   mNeedUpdate = true;
   return true;
 }
 
-void cBlockMesh::cleanupGL()
+void BlockMesh::cleanupGL()
 {
   mVao->destroy();
   delete mVao;
@@ -33,12 +33,12 @@ void cBlockMesh::cleanupGL()
 }
 
 // make sure to call this from the OpenGL thread!
-bool cBlockMesh::initGL(cShader *shader)
+bool BlockMesh::initGL(Shader *shader)
 {
   mVbo = new QOpenGLBuffer(QOpenGLBuffer::VertexBuffer);
   if(!mVbo->create())
     {
-      LOGE("VBO create failed in cBlockMesh!!");
+      LOGE("VBO create failed in BlockMesh!!");
       return false;
     }
   mVbo->bind();
@@ -55,7 +55,7 @@ bool cBlockMesh::initGL(cShader *shader)
   mVao = new QOpenGLVertexArrayObject();
   if(!mVao->create())
     {
-      LOGE("VAO create failed in cBlockMesh!!");
+      LOGE("VAO create failed in BlockMesh!!");
       return false;
     }
   mVao->bind();
@@ -72,7 +72,7 @@ bool cBlockMesh::initGL(cShader *shader)
   return true;
 }
 
-void cBlockMesh::render(cShader *shader)
+void BlockMesh::render(Shader *shader)
 {
   if(mVertices.size() > 0)
     {

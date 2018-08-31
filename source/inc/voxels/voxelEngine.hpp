@@ -29,6 +29,7 @@ public:
   void stopPhysics();
 
   void stepPhysics(int us);
+  void stepBlocks(int us);
   
   bool initGL(QObject *qparent);
   void cleanUpGL();
@@ -50,11 +51,12 @@ public:
   } mProjDesc;
 
   Player* getPlayer();
+  World* getWorld();
   ProjDesc getProjection() const;
   void setProjection(const ProjDesc &proj);
   void setLightLevel(int lightLevel);
 
-  void setTool(block_t type);
+  void setTool(block_t type, BlockData *data);
   void nextTool();
   void prevTool();
   void sendInput(const InputData &data);
@@ -63,6 +65,7 @@ private:
   World mWorld;
   GodPlayer mPlayer;
   TimedThread mPhysicsThread;
+  TimedThread mBlockThread;
   ThreadPool mMainThread;
   Matrix4 mProjMat;
   bool mWireframe = false;

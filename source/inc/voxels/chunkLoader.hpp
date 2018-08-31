@@ -16,17 +16,17 @@
 #include <mutex>
 #include <memory>
 
-class cRegionFile;
+class RegionFile;
 
 // attaches to file and loads/saves chunks as requested.
-class cChunkLoader
+class ChunkLoader
 {
 public:
   static const std::unordered_set<uint32_t> acceptedVersions;
   typedef std::function<void(Chunk* chunk)> loadCallback_t;
   
-  cChunkLoader(int loadThreads, const loadCallback_t &loadCallback);
-  ~cChunkLoader();
+  ChunkLoader(int loadThreads, const loadCallback_t &loadCallback);
+  ~ChunkLoader();
 
   void start();
   void stop();
@@ -42,7 +42,6 @@ public:
   void loadDirect(Chunk *chunk); // loads chunk in calling thread
   void save(Chunk *chunk);
 
-
   uint32_t getSeed() const { return mHeader.seed; }
   
 private:
@@ -52,13 +51,13 @@ private:
   wDesc::Header mHeader;
   // region file(s)
   std::mutex mRegionLock;
-  std::unordered_map<uint32_t, cRegionFile*> mRegionLookup;
+  std::unordered_map<uint32_t, RegionFile*> mRegionLookup;
   // threading
   loadCallback_t mLoadCallback;
   ThreadPool mLoadPool;
   ThreadQueue<Chunk> mLoadQueue;
   // other
-  cTerrainGenerator mTerrainGen;
+  TerrainGenerator mTerrainGen;
   
   bool checkVersion(const Vector<uint8_t, 4> &version) const;
 

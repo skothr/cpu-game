@@ -24,8 +24,8 @@ cMainWindow::cMainWindow(QWidget *parent, int numThreads, const std::string &wor
   mGame = new cGameWidget(this, numThreads, worldName, seed);
   connect(mGame, SIGNAL(posChanged(Point3f, Point3i, Point3i)),
           this, SLOT(setPosition(Point3f, Point3i, Point3i)));
-  connect(mGame, SIGNAL(blockInfo(block_t, int)),
-          this, SLOT(setBlockInfo(block_t, int)));
+  connect(mGame, SIGNAL(blockInfo(block_t, float)),
+          this, SLOT(setBlockInfo(block_t, float)));
   
 
   mOverlay = new cOverlay(this, {LabelDesc("POSITION", (align_t)(align_t::TOP)),
@@ -90,7 +90,7 @@ void cMainWindow::setPosition(Point3f player, Point3i collisions, Point3i chunk)
   cl->setText(ss.str().c_str());
 }
 
-void cMainWindow::setBlockInfo(block_t type, int lightLevel)
+void cMainWindow::setBlockInfo(block_t type, float lightLevel)
 {
   QLabel *tl = mOverlay->getLabel(2);
   QLabel *ll = mOverlay->getLabel(3);

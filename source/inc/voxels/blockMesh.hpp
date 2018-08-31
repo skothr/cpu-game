@@ -8,21 +8,21 @@
 #include <QOpenGLBuffer>
 #include <QOpenGLVertexArrayObject>
 
-class cBlockMesh
+class BlockMesh
 {
 public:
-  cBlockMesh();
-  cBlockMesh(const std::vector<cSimpleVertex> &vertices);
-  ~cBlockMesh();
+  BlockMesh();
+  BlockMesh(const std::vector<cSimpleVertex> &vertices);
+  ~BlockMesh();
 
   bool setMesh(const std::vector<cSimpleVertex> &vertices);
   
   const std::vector<cSimpleVertex>& getVertices() const { return mVertices; }
   std::vector<cSimpleVertex>& getVertices() { return mVertices; }
   
-  bool initGL(cShader *shader);
+  bool initGL(Shader *shader);
   void cleanupGL();
-  void render(cShader *shader);
+  void render(Shader *shader);
   
   void setUpdate() { mNeedUpdate = true; }
   

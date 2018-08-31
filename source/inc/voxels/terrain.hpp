@@ -19,11 +19,11 @@ enum class terrain_t : uint8_t
    PERLIN_CHUNK
   };
 
-class cPerlinNoise
+class PerlinNoise
 {
 public:
-  cPerlinNoise(uint32_t seed = 0);
-  ~cPerlinNoise();
+  PerlinNoise(uint32_t seed = 0);
+  ~PerlinNoise();
 
 
   void setSeed(uint32_t seed);
@@ -74,10 +74,10 @@ private:
 
 
 
-class cTerrainGenerator
+class TerrainGenerator
 {
 public:
-  cTerrainGenerator(uint32_t seed)
+  TerrainGenerator(uint32_t seed)
     : mSeed(seed), mNoise(seed)
   { }
 
@@ -91,7 +91,7 @@ public:
   void generate(const Point3i &chunkPos, terrain_t genType,
                      std::vector<uint8_t> &dataOut);
 private:
-  cPerlinNoise mNoise;
+  PerlinNoise mNoise;
   uint32_t mSeed;
   Indexer<Chunk::sizeX, Chunk::sizeY, Chunk::sizeZ> mIndexer;
 };

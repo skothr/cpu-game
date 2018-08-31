@@ -4,17 +4,17 @@
 #include <numeric>
 #include <algorithm>
 
-cPerlinNoise::cPerlinNoise(unsigned int seed)
+PerlinNoise::PerlinNoise(unsigned int seed)
 {
   setSeed(seed);
 }
 
-cPerlinNoise::~cPerlinNoise()
+PerlinNoise::~PerlinNoise()
 {
   
 }
 
-void cPerlinNoise::setSeed(uint32_t seed)
+void PerlinNoise::setSeed(uint32_t seed)
 {
   mVals.resize(256);
   // fill vals with [0, 255]
@@ -34,15 +34,15 @@ void cPerlinNoise::setSeed(uint32_t seed)
 
 
 
-void cTerrainGenerator::generate(const Point3i &chunkPos, terrain_t genType,
-                                      std::vector<uint8_t> &dataOut )
+void TerrainGenerator::generate(const Point3i &chunkPos, terrain_t genType,
+                                std::vector<uint8_t> &dataOut )
 {
-  cBlock b;
+  dataOut.resize(Chunk::totalSize * Block::dataSize);
+  Block b;
   int x,y,z;
   switch(genType)
     {
     case terrain_t::DIRT_GROUND:
-              
       for(x = 0; x < Chunk::sizeX; x++)
         for(y = 0; y < Chunk::sizeY; y++)
           for(z = 0; z < Chunk::sizeZ; z++)
@@ -53,8 +53,9 @@ void cTerrainGenerator::generate(const Point3i &chunkPos, terrain_t genType,
                 b.type =  block_t::DIRT;
               else
                 b.type = block_t::NONE;
-              
-              std::memcpy((void*)&dataOut[i*cBlock::dataSize], (void*)&b.data, cBlock::dataSize);
+
+              b.serialize(&dataOut[i*Block::dataSize]);
+              //std::memcpy((void*), (void*)&b.data, Block::dataSize);
             }
       break;              
     case terrain_t::PERLIN:
@@ -84,9 +85,11 @@ void cTerrainGenerator::generate(const Point3i &chunkPos, terrain_t genType,
                 }
               else
                 { b.type = block_t::STONE; }
-              
-              std::memcpy((void*)&dataOut[i*cBlock::dataSize], (void*)&b.data, cBlock::dataSize);
-              
+
+              //if(b.type != block_t::NONE)
+              ///{ LOGD("GENERATED BLOCK --> %d", (int)b.type); }
+              b.serialize(&dataOut[i*Block::dataSize]);
+              //std::memcpy((void*)&dataOut[i*Block::dataSize], (void*)&b.data, Block::dataSize);
             }
       break;
     case terrain_t::PERLIN_CHUNK:
@@ -109,8 +112,12 @@ void cTerrainGenerator::generate(const Point3i &chunkPos, terrain_t genType,
                 { b.type = block_t::DIRT; }
               else
                 { b.type = block_t::STONE; }
+
+              //if(b.type != block_t::NONE)
+              //{ LOGD("GENERATED BLOCK --> %d", (int)b.type); }
               
-              std::memcpy((void*)&dataOut[i*cBlock::dataSize], (void*)&b.data, cBlock::dataSize);
+              b.serialize(&dataOut[i*Block::dataSize]);
+              //std::memcpy((void*)&dataOut[i*Block::dataSize], (void*)&b.data, Block::dataSize);
             }
       break;
     }

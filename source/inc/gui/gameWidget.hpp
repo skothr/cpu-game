@@ -29,7 +29,7 @@ public:
 
 signals:
   void posChanged(Point3f player, Point3i collisions, Point3i chunk);
-  void blockInfo(block_t type, int light);
+  void blockInfo(block_t type, float light);
 
 public slots:
   void sendPos();  

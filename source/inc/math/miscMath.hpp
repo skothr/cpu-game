@@ -10,6 +10,13 @@
 //   return (((i + (i >> 4)) & 0x0F0F0F0F) * 0x01010101) >> 24;
 // }
 
+
+
+inline float lerp(float x0, float x1, float a)
+{
+  return (1.0f - a) * x0 + (a * x1);
+}
+
 typedef std::function<bool(const Point3i &pos)> centerLoopCallback_t;
 inline int loopFromCenter(const Point3i &center, const Point3i &maxRadius,
                           const centerLoopCallback_t &callback, bool reverse = false )
@@ -23,6 +30,15 @@ inline int loopFromCenter(const Point3i &center, const Point3i &maxRadius,
   int start = (reverse ? maxR : 0);
   int end = (reverse ? 0 : maxR);
   int step = (reverse ? -1 : 1);
+
+  
+  for(int z = -maxRadius[2]; z <= maxRadius[2]; z++)
+    {
+      callback(center + Point3i{0, 0, z});
+      callback(center + Point3i{0, 0, z});
+    }
+  start++;
+  
   for(int r = start; (reverse ? r >= end : r <= end); r += step)
     {
       radius[0] = std::min(r, maxRadius[0]);
@@ -41,39 +57,6 @@ inline int loopFromCenter(const Point3i &center, const Point3i &maxRadius,
             callback(center + Point3i{-radius[0], y+1, z});
           }
     }
-      /*
-      // z sides
-      if(r <= maxRadius[2])
-        {
-          for(int x = -radius[0]; x <= radius[0]; x++)
-            for(int y = -radius[1]; y <= radius[1]; y++)
-              {
-                num += (callback(center + Point3i{x, y, -radius[2]}) ? 1 : 0);
-                num += (callback(center + Point3i{x, y, radius[2]}) ? 1 : 0);
-              }
-        }
-      // x sides
-      if(r <= maxRadius[0])
-        {
-          for(int y = -radius[1]; y <= radius[1]; y++)
-            for(int z = -radius[2]+1; z < radius[2]; z++)
-              {
-                num += (callback(center + Point3i{radius[0], y, z}) ? 1 : 0);
-                num += (callback(center + Point3i{-radius[0], y, z}) ? 1 : 0);
-              }
-        }
-      // y sides
-      if(r <= maxRadius[1])
-        {
-          for(int x = -radius[0]+1; x < radius[0]; x++)
-            for(int z = -radius[2]+1; z < radius[2]; z++)
-              {
-                num += (callback(center + Point3i{x, radius[1], z}) ? 1 : 0);
-                num += (callback(center + Point3i{x, -radius[1], z}) ? 1 : 0);
-              }
-        }
-    }
-      */
   /*
   for(int r = maxR; r >= 0; r--)
     {

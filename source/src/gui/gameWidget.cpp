@@ -90,10 +90,11 @@ void cGameWidget::sendPos()
   Point3i coll = mEngine->getPlayer()->getCollisions();
   Point3i cpos = World::chunkPos(ppos);
   emit posChanged(ppos, coll, cpos);
-  cBlock *b = mEngine->getPlayer()->selectedBlock();
-  if(b)
+  CompleteBlock b = mEngine->getPlayer()->selectedBlock();
+  if(b.type != block_t::NONE)
     {
-      emit blockInfo(b->type, b->lightLevel);
+      emit blockInfo(b.type, (b.data && isFluidBlock(b.type) ?
+                              reinterpret_cast<FluidData*>(b.data)->fluidLevel : 0 ));
     }
   else
     {
@@ -103,7 +104,7 @@ void cGameWidget::sendPos()
 
 void cGameWidget::setTool(block_t type)
 {
-  mEngine->setTool(type);
+  mEngine->setTool(type, nullptr);
 }
 
 void cGameWidget::captureMouse(bool capture)

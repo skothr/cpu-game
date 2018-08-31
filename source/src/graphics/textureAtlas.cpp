@@ -49,7 +49,9 @@ bool cTextureAtlas::create(const std::string &filePath)
     {
       for(int c = 0; c < xBlocks; c++)
 	{
-	  glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, xBlocks * r + c, mBlockSize, mBlockSize, 1, GL_BGRA, GL_UNSIGNED_BYTE, data + (r * mBlockSize * imgW + c * mBlockSize) * yBlocks / 2);
+	  glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, xBlocks * r + c,
+                          mBlockSize, mBlockSize, 1, GL_BGRA, GL_UNSIGNED_BYTE,
+                          data + (r * mBlockSize * imgW + c * mBlockSize) * yBlocks / 2 );
 	  i++;
 	  if(i >= MAX_TEXTURES)
 	    { break; }

@@ -7,30 +7,30 @@
 #include <sstream>
 #include <fstream>
 
-cShader::cShader()
+Shader::Shader()
 {
 
 }
 
-cShader::cShader(QObject *parent)
+Shader::Shader(QObject *parent)
   : QObject(parent)
 {
 
 }
 
-void cShader::bind()
+void Shader::bind()
 {
   //mProgram->bind();
   glUseProgram(mProgramId);
 }
-void cShader::release()
+void Shader::release()
 {
   //mProgram->release();
   glUseProgram(0);
 }
 
 
-bool cShader::compileShader(GLenum type, const std::string &filePath, GLuint &shaderIdOut)
+bool Shader::compileShader(GLenum type, const std::string &filePath, GLuint &shaderIdOut)
 {
   // vertex shader
   LOGI(" Compiling %s shader ('%s')...",
@@ -69,7 +69,7 @@ bool cShader::compileShader(GLenum type, const std::string &filePath, GLuint &sh
   return true; 
 }
 
-bool cShader::linkProgram()
+bool Shader::linkProgram()
 {
   LOGD("Linking shader program...");
   glAttachShader(mProgramId, mVertShaderId);
@@ -101,7 +101,7 @@ bool cShader::linkProgram()
   return true;
 }
 
-bool cShader::loadProgram(const std::string &vshFile, const std::string &fshFile,
+bool Shader::loadProgram(const std::string &vshFile, const std::string &fshFile,
 			  const std::vector<std::string> &attributes,
 			  const std::vector<std::string> &uniforms )
 {
@@ -153,39 +153,39 @@ bool cShader::loadProgram(const std::string &vshFile, const std::string &fshFile
   return true;
 }
 
-void cShader::setAttrBuffer(int location, GLenum type, int offset,
+void Shader::setAttrBuffer(int location, GLenum type, int offset,
 			    int tupleSize, int stride )
 {
   glEnableVertexAttribArray(location);
   glVertexAttribPointer(location, tupleSize, type, GL_FALSE, stride, (GLvoid*)offset);
 }
-void cShader::setAttrBufferInt(int location, GLenum type, int offset,
+void Shader::setAttrBufferInt(int location, GLenum type, int offset,
 			       int tupleSize, int stride )
 {
   glEnableVertexAttribArray(location);
   glVertexAttribIPointer(location, tupleSize, type, stride, (GLvoid*)offset);
 }
 
-void cShader::setUniform(const std::string &name, const Matrix4 &mat)
+void Shader::setUniform(const std::string &name, const Matrix4 &mat)
 {
   glUniformMatrix4fv(mUniforms[name], 1, GL_TRUE, (GLfloat*)mat.data());
 }
 
-void cShader::setUniform(const std::string &name, const QMatrix4x4 &qm)
+void Shader::setUniform(const std::string &name, const QMatrix4x4 &qm)
 {
   glUniformMatrix4fv(mUniforms[name], 1, GL_TRUE, (GLfloat*)qm.data());
 }
 
-void cShader::setUniform(const std::string &name, int val)
+void Shader::setUniform(const std::string &name, int val)
 {
   glUniform1i(mUniforms[name], val);
 }
-void cShader::setUniform(const std::string &name, float val)
+void Shader::setUniform(const std::string &name, float val)
 {
   glUniform1f(mUniforms[name], val);
 }
 
-void cShader::setUniform(const std::string &name, const Point3f &v)
+void Shader::setUniform(const std::string &name, const Point3f &v)
 {
   glUniform3f(mUniforms[name], v[0], v[1], v[2]);
 }

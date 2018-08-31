@@ -20,7 +20,7 @@ bool cMeshBuffer::initialized() const
 { return mLoaded; }
 
 // make sure to call this from the OpenGL thread!
-bool cMeshBuffer::initGL(cShader *shader)
+bool cMeshBuffer::initGL(Shader *shader)
 {
   if(!mLoaded)
     {

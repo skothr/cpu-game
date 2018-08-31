@@ -11,17 +11,17 @@
 
 class QOpenGLBuffer;
 class QOpenGLVertexArrayObject;
-class cShader;
+class Shader;
 class cMeshBuffer;
 
-class cChunkMesh : protected QOpenGLFunctions_4_3_Core
+class ChunkMesh : protected QOpenGLFunctions_4_3_Core
 {
 public:
-  cChunkMesh(bool doubleBuffered = true);
-  ~cChunkMesh();
+  ChunkMesh(bool doubleBuffered = true);
+  ~ChunkMesh();
 
   bool initialized() const;
-  bool initGL(cShader *shader);
+  bool initGL(Shader *shader);
   void cleanupGL();
   void render();
   

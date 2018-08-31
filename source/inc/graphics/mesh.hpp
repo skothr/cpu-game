@@ -69,9 +69,9 @@ public:
 
   bool initialized() const;
   
-  bool initGL(cShader *shader);
+  bool initGL(Shader *shader);
   void cleanupGL();
-  void render(cShader *shader);
+  void render(Shader *shader);
   
 private:
   std::string mName;

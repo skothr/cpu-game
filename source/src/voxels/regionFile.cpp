@@ -7,7 +7,7 @@
 #include <unistd.h>
 #include <cstring>
 
-cRegionFile::cRegionFile(const std::string &filePath, const Vector<uint8_t, 4> &version,
+RegionFile::RegionFile(const std::string &filePath, const Vector<uint8_t, 4> &version,
                          bool create )
   : mFilePath(filePath), mVersion(version)
 {
@@ -23,15 +23,15 @@ cRegionFile::cRegionFile(const std::string &filePath, const Vector<uint8_t, 4> &
       exit(1);
     }
   
-  calcRegionPos();
+  calRegionPos();
 }
 
-cRegionFile::~cRegionFile()
+RegionFile::~RegionFile()
 {
   close();
 }
 
-void cRegionFile::close()
+void RegionFile::close()
 {
 
   if(munmap(mFileData, mFileSize) < 0)
@@ -42,7 +42,7 @@ void cRegionFile::close()
   ::close(mFd);
 }
 
-bool cRegionFile::openFile()
+bool RegionFile::openFile()
 {
   std::lock_guard<std::mutex> lock(mMapLock);
   LOGD("Opening...");
@@ -81,7 +81,7 @@ bool cRegionFile::openFile()
   return true;
 }
 
-bool cRegionFile::createFile()
+bool RegionFile::createFile()
 {
   std::lock_guard<std::mutex> lock(mMapLock);
   LOGD("Creating region file...");
@@ -95,7 +95,7 @@ bool cRegionFile::createFile()
 
   // initial file sizing (header + lookup + room for one chunk)
   mFileSize = (sizeof(wData::Header) + sizeof(wData::ChunkInfo) * CHUNKS_PER_REGION +
-               Chunk::totalSize * cBlock::dataSize );
+               Chunk::totalSize * Block::dataSize );
   if(ftruncate(mFd, mFileSize) < 0)
     {
       ::close(mFd);
@@ -116,7 +116,7 @@ bool cRegionFile::createFile()
   return true;
 }
 
-bool cRegionFile::resizeFile(int extraBytes)
+bool RegionFile::resizeFile(int extraBytes)
 {
   //std::lock_guard<std::mutex> lock(mMapLock);
   if(ftruncate(mFd, mFileSize + extraBytes) < 0)
@@ -139,7 +139,7 @@ bool cRegionFile::resizeFile(int extraBytes)
     return true;
   }
 }
-bool cRegionFile::readRegion()
+bool RegionFile::readRegion()
 {
   if(!openFile())
     { return false; }
@@ -162,7 +162,7 @@ bool cRegionFile::readRegion()
   return true;
 }
 
-bool cRegionFile::createRegion()
+bool RegionFile::createRegion()
 {
   LOGD("Creating region...");
   if(!createFile())
@@ -181,7 +181,7 @@ bool cRegionFile::createRegion()
 }
 
 
-bool cRegionFile::readChunk(Chunk *chunk)
+bool RegionFile::readChunk(Chunk *chunk)
 {
   const Point3i chunkPos = chunk->pos();
   //std::cout << "READING CHUNK: " << chunkPos << "\n";
@@ -193,7 +193,7 @@ bool cRegionFile::readChunk(Chunk *chunk)
 
   if(!mChunkStatus[cIndex].exchange(true))
     {
-      mChunkData[cIndex].resize(Chunk::totalSize * cBlock::dataSize);
+      mChunkData[cIndex].clear();
 
       if(mChunkInfo[cIndex].chunkSize != 0)
         { // read chunk data
@@ -202,7 +202,7 @@ bool cRegionFile::readChunk(Chunk *chunk)
           //LOGD("READING CHUNK (size: %d)", mChunkInfo[cIndex].chunkSize);
       
           // deserialize chunk
-          chunk->deserialize(&mChunkData[cIndex][0], mChunkData[cIndex].size());
+          chunk->deserialize(mChunkData[cIndex]);
           mChunkStatus[cIndex].store(false);
           return true;
         }
@@ -215,7 +215,7 @@ bool cRegionFile::readChunk(Chunk *chunk)
   return false;
 }
 
-bool cRegionFile::writeChunk(const Chunk *chunk)
+bool RegionFile::writeChunk(const Chunk *chunk)
 {
   //std::lock_guard<std::mutex> lock(mMapLock);
   const Point3i chunkPos = chunk->pos();
@@ -227,11 +227,10 @@ bool cRegionFile::writeChunk(const Chunk *chunk)
   std::cout << "Chunk index: " << cIndex << " : " << cPos << "\n";
   
   if(!mChunkStatus[cIndex].exchange(true))
-  {
+    {
       // get chunk data
-      mChunkData[cIndex].resize(Chunk::totalSize * cBlock::dataSize);
-      const int dataSize = chunk->serialize(&mChunkData[cIndex][0]); // max chunk size
-      mChunkData[cIndex].resize(dataSize);
+      mChunkData[cIndex].clear();
+      const int dataSize = chunk->serialize(mChunkData[cIndex]); // max chunk size
   
       if(mChunkInfo[cIndex].chunkSize == 0)
         { // add chunk to end of file
@@ -274,14 +273,14 @@ bool cRegionFile::writeChunk(const Chunk *chunk)
   return true;
 }
 
-std::string cRegionFile::regionFileName(const Point3i &regionPos)
+std::string RegionFile::regionFileName(const Point3i &regionPos)
 {
   std::ostringstream ss;
   ss << "r." << regionPos[0] << "." << regionPos[1] << "." << regionPos[2]
      << ".wr";
   return ss.str();
 }
-void cRegionFile::calcRegionPos()
+void RegionFile::calRegionPos()
 {
   std::istringstream ss(mFilePath);
   std::istringstream convert;
@@ -308,11 +307,11 @@ void cRegionFile::calcRegionPos()
 }
 
 
-inline int cRegionFile::chunkIndex(int bx, int by, int bz)
+inline int RegionFile::chunkIndex(int bx, int by, int bz)
 { return bx + REGION_SIZEX * (bz + REGION_SIZEZ * by); }
-inline int cRegionFile::chunkIndex(const Point3i cp)
+inline int RegionFile::chunkIndex(const Point3i cp)
 { return chunkIndex(cp[0], cp[1], cp[2]); }
-inline Point3i cRegionFile::unflattenChunkIndex(int index)
+inline Point3i RegionFile::unflattenChunkIndex(int index)
 {
   const int yi = index / REGION_SIZEY;
   index -= yi * REGION_SIZEY;
@@ -321,56 +320,56 @@ inline Point3i cRegionFile::unflattenChunkIndex(int index)
   return Point3i{xi, yi, zi};
 }
 
-inline void cRegionFile::readVersion()
+inline void RegionFile::readVersion()
 {
   std::memcpy((void*)&mHeader.version, (void*)mFileData, sizeof(wData::Header::version));
 }
-inline void  cRegionFile::writeVersion()
+inline void  RegionFile::writeVersion()
 {
   mHeader.version = mVersion;
   std::memcpy((void*)mFileData, (void*)&mHeader.version, sizeof(wData::Header::version));
 }
-inline void cRegionFile::readOffset()
+inline void RegionFile::readOffset()
 {
   std::memcpy((void*)&mHeader.nextOffset, (void*)(mFileData + sizeof(wData::Header::version)),
               sizeof(wData::Header::nextOffset));
   mNextOffset.store(mHeader.nextOffset);
 }
-inline void cRegionFile::writeOffset()
+inline void RegionFile::writeOffset()
 {
   mHeader.nextOffset = mNextOffset.load();
   std::memcpy(((void*)mFileData + sizeof(wData::Header::version)),
               (void*)&mHeader.nextOffset, sizeof(wData::Header::nextOffset) );
 }
-inline void cRegionFile::readLookup(int chunkIndex)
+inline void RegionFile::readLookup(int chunkIndex)
 {
   const int offset = sizeof(wData::Header) + sizeof(wData::ChunkInfo) * chunkIndex;
   std::memcpy((void*)&mChunkInfo[chunkIndex], (void*)(mFileData + offset), sizeof(wData::ChunkInfo));
 }
-inline void cRegionFile::writeLookup(int chunkIndex)
+inline void RegionFile::writeLookup(int chunkIndex)
 {
   const int offset = sizeof(wData::Header) + sizeof(wData::ChunkInfo) * chunkIndex;
   std::memcpy((void*)(mFileData + offset), (void*)&mChunkInfo[chunkIndex], sizeof(wData::ChunkInfo));
 }
-inline void cRegionFile::readLookup()
+inline void RegionFile::readLookup()
 {
   const int offset = sizeof(wData::Header);
   const int bytes = sizeof(wData::ChunkInfo) * CHUNKS_PER_REGION;
   std::memcpy((void*)&mChunkInfo[0], (void*)(mFileData + offset), bytes);
 }
-inline void cRegionFile::writeLookup()
+inline void RegionFile::writeLookup()
 {
   const int offset = sizeof(wData::Header);
   const int bytes = sizeof(wData::ChunkInfo) * CHUNKS_PER_REGION;
   std::cout << "Writing lookup at: " << offset << " (" << bytes  << " bytes)\n";
   std::memcpy((void*)(mFileData + offset), (void*)&mChunkInfo[0], bytes);
 }
-inline void cRegionFile::readChunkData(int chunkIndex)
+inline void RegionFile::readChunkData(int chunkIndex)
 {
   std::memcpy((void*)&mChunkData[chunkIndex][0], (void*)(mFileData + mChunkInfo[chunkIndex].offset),
               mChunkInfo[chunkIndex].chunkSize );
 }
-inline void cRegionFile::writeChunkData(int chunkIndex)
+inline void RegionFile::writeChunkData(int chunkIndex)
 {
   std::cout << "Writing chunk at: " << mChunkInfo[chunkIndex].offset << " (" << mChunkInfo[chunkIndex].chunkSize  << " bytes)\n";
   std::memcpy((void*)(mFileData + mChunkInfo[chunkIndex].offset),

@@ -10,7 +10,7 @@
 
 class QOpenGLBuffer;
 class QOpenGLVertexArrayObject;
-class cShader;
+class Shader;
 
 class cMeshBuffer : protected QOpenGLFunctions_4_3_Core
 {
@@ -19,7 +19,7 @@ public:
   ~cMeshBuffer();
   
   bool initialized() const;
-  bool initGL(cShader *shader);
+  bool initGL(Shader *shader);
   void cleanupGL();
   void render();
 

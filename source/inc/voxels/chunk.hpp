@@ -2,10 +2,12 @@
 #define CHUNK_HPP
 
 #include "block.hpp"
+#include "fluid.hpp"
 #include "vector.hpp"
 #include "indexing.hpp"
 #include <array>
 #include <unordered_map>
+#include <unordered_set>
 
 // NOTE:
 //  - wx/wy/wz denotes block position within world
@@ -39,7 +41,7 @@ public:
   }
 
   Chunk(const Point3i &worldPos);
-  Chunk(const Point3i &worldPos, const std::array<cBlock, totalSize> &data);
+  //Chunk(const Point3i &worldPos, const std::array<Block, totalSize> &data);
 
   void setWorldPos(const Point3i &pos)
   { mWorldPos = pos; }
@@ -47,21 +49,28 @@ public:
   bool isEmpty() const;
 
   // data access
-  cBlock& operator[](const Point3i &bp)
-  { return mData[mIndexer.index(bp)]; }
-  const cBlock& operator[](const Point3i &bp) const
-  { return mData[mIndexer.index(bp)]; }
-  cBlock* at(int bx, int by, int bz);
-  cBlock* at(const Point3i &bp);
-  block_t get(int bx, int by, int bz) const;
-  block_t get(const Point3i &bp) const;
-  std::array<cBlock, totalSize>& data();
-  const std::array<cBlock, totalSize>& data() const;
+  Block& operator[](const Point3i &bp)
+  { return mBlocks[mIndexer.index(bp)]; }
+  const Block& operator[](const Point3i &bp) const
+  { return mBlocks[mIndexer.index(bp)]; }
+  Block* at(int bx, int by, int bz);
+  Block* at(const Point3i &bp);
+  Block* at(int bi);
+  block_t getType(int bx, int by, int bz) const;
+  block_t getType(const Point3i &bp) const;
+  BlockData* getData(const Point3i &bp);
+  std::array<Block, totalSize>& data();
+  const std::array<Block, totalSize>& data() const;
+  
+  //FluidData& getFluid(int bx, int by, int bz);
+  //FluidData& getFluid(const Point3i &bp);
+
+  std::unordered_map<int, FluidData*> getFluids();
 
   // setting
-  bool set(int bx, int by, int bz, block_t type);
-  bool set(const Point3i &bp, block_t type);
-  void setData(const std::array<cBlock, totalSize> &data);
+  bool setBlock(int bx, int by, int bz, block_t type, BlockData *data = nullptr);
+  bool setBlock(const Point3i &bp, block_t type, BlockData *data = nullptr);
+  //void setData(const std::array<Block, totalSize> &data);//, const std::unordered_map<int, FluidData> &fluids);
   
   // updating
   bool isPriority() { return mPriority; }
@@ -71,23 +80,31 @@ public:
   bool isIncomplete() { return mIncomplete; }
   void setIncomplete(bool incomplete) { mIncomplete = incomplete; }
 
+  bool step(bool evap);
+
   // serialization
-  int serialize(uint8_t *dataOut) const;
-  void deserialize(const uint8_t *dataIn, int bytes);
-  
-  //void updateBlock(const Point3i &bp);
-  //void updateAllBlocks();
+  int serialize(std::vector<uint8_t> &dataOut) const;
+  void deserialize(const std::vector<uint8_t> &dataIn);
+
+  static const Indexer<sizeX, sizeY, sizeZ>& indexer() { return mIndexer; }
   
 private:
   static const Indexer<sizeX, sizeY, sizeZ> mIndexer;
   
-  std::array<cBlock, totalSize> mData;
+  Point3i mWorldPos;
+  std::array<Block, totalSize> mBlocks;
+  std::unordered_map<int, FluidData*> mFluids;
+  std::unordered_map<int, BlockData*> mActive;
+  
   std::atomic<int> mNumBlocks = 0;
+  int mNumBytes = totalSize*Block::dataSize;
+  
   std::atomic<bool> mDirty = true;
   std::atomic<bool> mIncomplete = true;
   std::atomic<bool> mPriority = false;
-  Point3i mWorldPos;
 
+  void reset();
+  
   static inline int blockX(int wx)
   { return wx & maskX; }
   static inline int blockY(int wy)

@@ -11,7 +11,7 @@
 #include "vector.hpp"
 #include "blockSides.hpp"
 
-class cShader;
+class Shader;
 
 enum class simple_t : uint8_t
   {
@@ -25,25 +25,26 @@ enum class simple_t : uint8_t
 
    END
   };
+enum class fluid_t : uint8_t
+  {
+   NONE = 0,
+   
+   START = (int)simple_t::END,
+   WATER = START,
+   LAVA,
+
+   END
+  };
 enum class complex_t : uint8_t
   {
    NONE = 0,
 
-   START = (int)simple_t::END,
+   START = (int)fluid_t::END,
    DEVICE = START,
    CPU,
    MEMORY,
    LIGHT,
    
-   END
-  };
-enum class fluid_t : uint8_t
-  {
-   NONE = 0,
-   
-   START =  (int)complex_t::END,
-   WATER = START,
-
    END
   };
 
@@ -55,13 +56,14 @@ enum class block_t : uint8_t
    GRASS,
    STONE,
    SAND,
+   // fluid blocks
+   WATER = (int)fluid_t::START,
+   LAVA,
    // complex blocks
    DEVICE = (int)complex_t::START,
    CPU,
    MEMORY,
    LIGHT,
-   // fluid blocks
-   WATER = (int)fluid_t::START,
    
    COUNT
   };
@@ -83,6 +85,7 @@ inline std::string toString(block_t b)
       return "STONE";
     case block_t::SAND:
       return "SAND";
+      
     case block_t::DEVICE:
       return "DEVICE";
     case block_t::CPU:
@@ -91,8 +94,11 @@ inline std::string toString(block_t b)
       return "MEMORY";
     case block_t::LIGHT:
       return "LIGHT";
+      
     case block_t::WATER:
       return "WATER";
+    case block_t::LAVA:
+      return "LAVA";
     default:
       return "<UNKNOWN BLOCK TYPE>";
     }
@@ -152,56 +158,76 @@ inline block_t fluidType(int index)
 #define DEFAULT_LIGHT_LEVEL 0
 #define BLOCK_USED_BITS 22
 
-class cBlock
+
+/*
+// A data base class for blocks that require more that just a type.
+class BlockData
 {
 public:
-  cBlock(block_t t = block_t::NONE, blockSide_t sides = blockSide_t::ALL,
-	 int8_t light = DEFAULT_LIGHT_LEVEL )
-    : type(t), activeSides(sides), lightLevel(light), occlusion(type == block_t::NONE ? 0 : 1)
+  BlockData(bool goneVal)
+    : gone(goneVal)
   { }
 
-  static const int dataSize = 1; // data bytes to store
+  virtual BlockData* copy() const = 0;
+  virtual int dataSize() const = 0;
+  virtual bool step() { }
+  virtual int serialize(uint8_t *dataOut) const = 0;
+  virtual int deserialize(const uint8_t *dataOut, int bytes) = 0;
+  bool gone;
   
-  union
-  {
-    struct
-    {
-      block_t type;
-    };
-    uint32_t data; //TOTAL
-  };
-  
-  blockSide_t activeSides; // sides of block that are showing
-  int8_t lightLevel;
-  uint8_t occlusion;
-  
-  virtual void update() { }
+protected:
+};
+*/
 
-  inline void setActive(blockSide_t side, block_t adjType)
+// Represents every block in a chunk at the top level.
+class Block
+{
+public:
+  Block(block_t t = block_t::NONE)
+    : type(t)
+  { }
+  Block(const Block &other)
+    : Block(other.type)//, other.data ? other.data->copy() : nullptr)
+  {}
+  Block& operator=(const Block &other)
   {
-    activeSides = (type == block_t::NONE ? blockSide_t::NONE :
-                   (adjType == block_t::NONE ? (activeSides | side) : (activeSides & ~side)) );
+    type = other.type;
+    //data = other.data ? other.data->copy() : nullptr;
+    return *this;
   }
-  inline void setActive(blockSide_t side)
-  { activeSides |= side; }
-  inline void setInactive(blockSide_t side)
-  { activeSides &= ~side; }
-
-  void updateOcclusion();
   
-  bool active() const;
-  bool active(blockSide_t side) const;
-
-  bool activeEmpty(blockSide_t side);
-  bool activeMirror(blockSide_t side);
+  static const int dataSize = sizeof(block_t);// + sizeof(int);
+  
+  block_t type;
+  //BlockData *data;
+  //int dataIndex; // index to data, if needed
+  
+  // void step()
+  // {
+  //   if(data)
+  //     { data->step(); }
+  // }
   
   // modifies pointer and returns leftover bits in pointed-to byte
-  virtual int serialize(uint8_t *dataOut) const;
-  virtual void deserialize(const uint8_t *dataIn, int bytes);
+  int serialize(uint8_t *dataOut) const;
+  void deserialize(const uint8_t *dataIn, int bytes);
+};
+
+class BlockData // base class for block data (e.g. fluid data)
+{
+public:
+  virtual int dataSize() const = 0;
+  virtual BlockData* copy() const = 0;
+};
+
+struct CompleteBlock
+{
+  block_t type;
+  BlockData *data;
 };
 
 /*
-class cComplexBlock : public cBlock
+class cComplexBlock : public Block
 {
 public:
   cComplexBlock(block_t t = block_t::NONE, blockSide_t sides = blockSide_t::ALL,

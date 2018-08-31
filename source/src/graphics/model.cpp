@@ -14,7 +14,7 @@ void cModelObj::setMode(GLenum mode)
     }
 }
 
-bool cModelObj::initGL(cShader *shader)
+bool cModelObj::initGL(Shader *shader)
 {
   for(int i = 0; i < mMeshes.size(); i++)
     { mMeshes[i].initGL(shader); }
@@ -28,7 +28,7 @@ void cModelObj::cleanupGL()
 }
 
 
-void cModelObj::render(cShader *shader, const Matrix4 &pvm)
+void cModelObj::render(Shader *shader, const Matrix4 &pvm)
 {
   //shader->bind();
   shader->setUniform("pvm", pvm);

@@ -51,7 +51,7 @@ namespace wDesc
 {
   struct Header
   {
-    Header(const Vector<uint8_t, 4> &version = {}, uint8_t blockSize = cBlock::dataSize,
+    Header(const Vector<uint8_t, 4> &version = {}, uint8_t blockSize = Block::dataSize,
            terrain_t terrain = terrain_t::INVALID, uint32_t seed = 0)//, const std::string &name = "" )
       : version(version), blockSize(blockSize), terrain(terrain), seed(seed)
     { }//std::memcpy((void*)worldName, (void*)name.c_str(),

@@ -20,14 +20,15 @@
 
 #define PHYSICS_TIMESTEP_MS 10 //ms
 #define PHYSICS_TIMESTEP_S (TIMESTEP_MS / 1000.0f)
-#define BLOCK_TIMESTEP_MS 20 //ms
+#define BLOCK_TIMESTEP_MS 50 //1000 //20 //ms
 #define BLOCK_TIMESTEP_US (BLOCK_TIMESTEP_MS * 1000)
 
 
 VoxelEngine::VoxelEngine(QObject *qParent, int numThreads, const std::string &worldName, uint32_t seed)
   : mWorld(numThreads, START_CHUNK, CHUNK_RAD),
     mPlayer(qParent, START_POS, PLAYER_EYE, PLAYER_UP, &mWorld),
-    mMainThread(1, std::bind(&VoxelEngine::mainLoop, this), 1000),
+    mMainThread(1, std::bind(&VoxelEngine::mainLoop, this), 10000),
+    mBlockThread("Block Update", std::bind(&VoxelEngine::stepBlocks, this, std::placeholders::_1), false),
     mPhysicsThread("Physics", std::bind(&VoxelEngine::stepPhysics, this, std::placeholders::_1), false)
 {
   if(!mWorld.loadWorld(worldName, seed))
@@ -44,11 +45,15 @@ void VoxelEngine::start()
 {
   mWorld.startLoading();
   mMainThread.start();
+  
+  mBlockThread.setInterval(BLOCK_TIMESTEP_US);
+  mBlockThread.start();
 }
 void VoxelEngine::stop()
 {
   stopPhysics();
   mMainThread.stop();
+  mBlockThread.join();
 }
 void VoxelEngine::mainLoop()
 {
@@ -79,7 +84,13 @@ void VoxelEngine::stepPhysics(int us)
         }
     }
   else
-    { mPlayer.update((double)us / 1000000.0); }
+    {
+      mPlayer.update((double)us / 1000000.0);
+    }
+}
+void VoxelEngine::stepBlocks(int us)
+{
+  mWorld.step();
 }
 
 bool VoxelEngine::initGL(QObject *qparent)
@@ -178,6 +189,8 @@ void VoxelEngine::setWireframe(bool wireframe)
 
 Player* VoxelEngine::getPlayer()
 { return &mPlayer; }
+World* VoxelEngine::getWorld()
+{ return &mWorld; }
 
 VoxelEngine::ProjDesc VoxelEngine::getProjection() const
 { return mProjDesc; }
@@ -194,8 +207,11 @@ void VoxelEngine::setProjection(const ProjDesc &desc)
 void VoxelEngine::setLightLevel(int lightLevel)
 { mWorld.setLightLevel(lightLevel); }
 
-void VoxelEngine::setTool(block_t type)
-{ mPlayer.setPlaceBlock(type); }
+void VoxelEngine::setTool(block_t type, BlockData *data)
+{
+  LOGD("PLAYER SETTING TOOL: %s", toString(type).c_str());
+  mPlayer.setPlaceBlock(type, data);
+}
 void VoxelEngine::nextTool()
 { mPlayer.nextPlaceBlock(); }
 void VoxelEngine::prevTool()

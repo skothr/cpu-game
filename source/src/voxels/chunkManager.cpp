@@ -130,7 +130,7 @@ void cChunkManager::initGL(QObject *qParent)
 {
   /*
   // load shader
-  mBlockShader = new cShader(qParent);
+  mBlockShader = new Shader(qParent);
   if(!mBlockShader->loadProgram("./shaders/simpleBlock.vsh", "./shaders/simpleBlock.fsh",
                                 {"posAttr", "normalAttr", "texCoordAttr"},
                                 {"pvm", "camPos", "fogStart", "fogEnd", "uTex"} ))
@@ -275,7 +275,7 @@ block_t cChunkManager::get(const Point3i &wp)
   */
   return block_t::NONE;
 }
-cBlock* cChunkManager::at(const Point3i &wp)
+Block* cChunkManager::at(const Point3i &wp)
 {
   /*
   std::lock_guard<std::mutex> lock(mChunkLock);

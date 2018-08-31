@@ -10,10 +10,10 @@
 
 namespace fs = std::filesystem;
 
-const std::unordered_set<uint32_t> cChunkLoader::acceptedVersions
+const std::unordered_set<uint32_t> ChunkLoader::acceptedVersions
 { 0x00000100 };
 
-bool cChunkLoader::checkVersion(const Vector<uint8_t, 4> &version) const
+bool ChunkLoader::checkVersion(const Vector<uint8_t, 4> &version) const
 {
   if(acceptedVersions.find(((int)version[3]) |
                            ((int)version[2] << 8) |
@@ -32,13 +32,13 @@ bool cChunkLoader::checkVersion(const Vector<uint8_t, 4> &version) const
 #define SAVE_SLEEP_US 1000
 
 
-cChunkLoader::cChunkLoader(int loadThreads, const loadCallback_t &loadCallback)
-  : mLoadPool(loadThreads, std::bind(&cChunkLoader::loadWorker, this,
+ChunkLoader::ChunkLoader(int loadThreads, const loadCallback_t &loadCallback)
+  : mLoadPool(loadThreads, std::bind(&ChunkLoader::loadWorker, this,
                                      std::placeholders::_1 ), LOAD_SLEEP_US ),
     mLoadCallback(loadCallback), mTerrainGen(0)
 { }
 
-cChunkLoader::~cChunkLoader()
+ChunkLoader::~ChunkLoader()
 {
   stop();
   std::lock_guard<std::mutex> lock(mRegionLock);
@@ -49,12 +49,12 @@ cChunkLoader::~cChunkLoader()
   mRegionLookup.clear();
 }
 
-void cChunkLoader::stop()
+void ChunkLoader::stop()
 { mLoadPool.stop(); }
-void cChunkLoader::start()
+void ChunkLoader::start()
 { mLoadPool.start(); }
 
-std::vector<std::string> cChunkLoader::listWorlds()
+std::vector<std::string> ChunkLoader::listWorlds()
 {
   // create global world directory if needed
   if(!fs::exists(WORLD_DIR))
@@ -68,7 +68,7 @@ std::vector<std::string> cChunkLoader::listWorlds()
     { worlds.push_back(p.path()); }
   return worlds;
 }
-std::vector<std::string> cChunkLoader::listRegions(const std::string &worldDir)
+std::vector<std::string> ChunkLoader::listRegions(const std::string &worldDir)
 {
   std::vector<std::string> regions;
   for(auto& p: fs::directory_iterator(worldDir))
@@ -79,7 +79,7 @@ std::vector<std::string> cChunkLoader::listRegions(const std::string &worldDir)
   return regions;
 }
 
-bool cChunkLoader::createWorld(const std::string &worldName, uint32_t seed)
+bool ChunkLoader::createWorld(const std::string &worldName, uint32_t seed)
 {
   // create global world directory if needed
   if(!fs::exists(WORLD_DIR))
@@ -119,13 +119,13 @@ bool cChunkLoader::createWorld(const std::string &worldName, uint32_t seed)
       return false;
     }
   // write header
-  wDesc::Header worldHeader(Vector<uint8_t, 4>{0,0,1,0}, cBlock::dataSize, terrain_t::PERLIN, seed);
+  wDesc::Header worldHeader(Vector<uint8_t, 4>{0,0,1,0}, Block::dataSize, terrain_t::PERLIN, seed);
   worldFile.write(reinterpret_cast<char*>(&worldHeader), sizeof(wDesc::Header));
   
   return true;
 }
 
-bool cChunkLoader::loadWorld(const std::string &worldName)
+bool ChunkLoader::loadWorld(const std::string &worldName)
 {
   // create global world directory if needed
   if(!fs::exists(WORLD_DIR))
@@ -166,7 +166,7 @@ bool cChunkLoader::loadWorld(const std::string &worldName)
   for(int i = 0; i < regions.size(); i++)
     {
       LOGD("FOUND REGION: %s", regions[i].c_str());
-      cRegionFile *rFile = new cRegionFile(regions[i], mHeader.version, false);
+      RegionFile *rFile = new RegionFile(regions[i], mHeader.version, false);
       if(!(*rFile))
         {
           LOGE("FAILED TO LOAD REGION FILE %s!!!", regions[i].c_str());
@@ -188,12 +188,12 @@ bool cChunkLoader::loadWorld(const std::string &worldName)
   return true;
 }
 
-void cChunkLoader::load(Chunk* chunk)
+void ChunkLoader::load(Chunk* chunk)
 {
   //LOGD("CHUNK LOADER RECV LOAD REQUEST");
   mLoadQueue.push(chunk);
 }
-void cChunkLoader::loadWorker(int tid)
+void ChunkLoader::loadWorker(int tid)
 {
   Chunk* chunk = mLoadQueue.pop();
   
@@ -205,14 +205,14 @@ void cChunkLoader::loadWorker(int tid)
     }
 }
 
-void cChunkLoader::loadDirect(Chunk* chunk)
+void ChunkLoader::loadDirect(Chunk* chunk)
 {
   const Point3i cPos = chunk->pos();
   const Point3i rPos({ cPos[0] >> 4,
                        cPos[1] >> 4,
                        cPos[2] >> 4 });
   
-  cRegionFile *rFile = nullptr;
+  RegionFile *rFile = nullptr;
   {
     std::lock_guard<std::mutex> rlock(mRegionLock);
     auto iter = mRegionLookup.find(Hash::hash(rPos));
@@ -225,20 +225,20 @@ void cChunkLoader::loadDirect(Chunk* chunk)
   if(!rFile || !rFile->readChunk(chunk))
     { // chunk not in file -- needs to be generated.
       //LOGD("GENERATING CHUNK...");
-      std::vector<uint8_t> chunkData(Chunk::totalSize * cBlock::dataSize);
+      std::vector<uint8_t> chunkData;
       mTerrainGen.generate(chunk->pos(), mHeader.terrain, chunkData);
-      chunk->deserialize(chunkData.data(), chunkData.size());
+      chunk->deserialize(chunkData);
     }
 }
 
-void cChunkLoader::save(Chunk* chunk)
+void ChunkLoader::save(Chunk* chunk)
 {
   const Point3i cPos = chunk->pos();
   const Point3i rPos({ cPos[0] >> 4,
                        cPos[1] >> 4,
                        cPos[2] >> 4 });
       
-  cRegionFile *rFile = nullptr;
+  RegionFile *rFile = nullptr;
   {
     std::lock_guard<std::mutex> rlock(mRegionLock);
     auto iter = mRegionLookup.find(Hash::hash(rPos));
@@ -248,7 +248,7 @@ void cChunkLoader::save(Chunk* chunk)
 
   if(!rFile)
     { // create new region file
-      rFile = new cRegionFile(WORLD_DIR + mWorldName + "/" + cRegionFile::regionFileName(rPos),
+      rFile = new RegionFile(WORLD_DIR + mWorldName + "/" + RegionFile::regionFileName(rPos),
                               mHeader.version, true );
       if(!(*rFile))
         {

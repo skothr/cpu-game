@@ -27,7 +27,7 @@ public slots:
   void stepPhysics();
   void setTimestep(int timestepMs);
   void setPosition(Point3f player, Point3i collisions, Point3i chunk);
-  void setBlockInfo(block_t type, int lightLevel);
+  void setBlockInfo(block_t type, float lightLevel);
   
 protected slots:
   void toolSelected(int id, bool checked);

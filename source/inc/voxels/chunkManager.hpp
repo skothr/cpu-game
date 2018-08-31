@@ -29,7 +29,7 @@
 
 
 
-class cShader;
+class Shader;
 class cTextureAtlas;
 
 class cChunkManager
@@ -60,7 +60,7 @@ public:
   Point3i maxChunk() const;
   
   block_t get(const Point3i &wp);
-  cBlock* at(const Point3i &wp);
+  Block* at(const Point3i &wp);
   
   void set(const Point3i &wp, block_t type);
   int numLoaded() const;
@@ -101,11 +101,11 @@ private:
 
   int mLighting = 0;
   
-  cChunkLoader mLoader;
+  ChunkLoader mLoader;
   ThreadPool mUpdatePool;
 
   // rendering
-  cShader *mBlockShader = nullptr;
+  Shader *mBlockShader = nullptr;
   cTextureAtlas *mTexAtlas = nullptr;
 
   Point3f mCamPos;

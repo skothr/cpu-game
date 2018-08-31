@@ -8,22 +8,22 @@
 #include <QOpenGLVertexArrayObject>
 //#include <qopengl.h>
 
-cChunkMesh::cChunkMesh(bool doubleBuffered)
+ChunkMesh::ChunkMesh(bool doubleBuffered)
   : mDB(doubleBuffered)
 {
 
 }
 
-cChunkMesh::~cChunkMesh()
+ChunkMesh::~ChunkMesh()
 {
   
 }
 
-bool cChunkMesh::initialized() const
+bool ChunkMesh::initialized() const
 { return mLoaded; }
 
 // make sure to call this from the OpenGL thread!
-bool cChunkMesh::initGL(cShader *shader)
+bool ChunkMesh::initGL(Shader *shader)
 {
   if(!mLoaded)
     {
@@ -41,7 +41,7 @@ bool cChunkMesh::initGL(cShader *shader)
     { return false; }
 }
 
-void cChunkMesh::cleanupGL()
+void ChunkMesh::cleanupGL()
 {
   mBuffers[0]->cleanupGL();
   mBuffers[1]->cleanupGL();
@@ -50,7 +50,7 @@ void cChunkMesh::cleanupGL()
 }
 
 
-void cChunkMesh::uploadData(const MeshData &data)
+void ChunkMesh::uploadData(const MeshData &data)
 {
   //LOGD("MESH UPLOADING --> %di, %dv", data.indices.size(), data.vertices.size());
   inactiveBuffer()->uploadData(data);
@@ -59,7 +59,7 @@ void cChunkMesh::uploadData(const MeshData &data)
   //LOGD("DONE");
 }
 
-void cChunkMesh::render()
+void ChunkMesh::render()
 {
   //LOGD("CHUNK MESH RENDERING --> %d, %d", (long)activeVBO(), (long)activeIBO());
   //if(mLoaded)
@@ -68,7 +68,7 @@ void cChunkMesh::render()
   }
 }
 
-void cChunkMesh::detachData()
+void ChunkMesh::detachData()
 {
   //activeBuffer()->detachData();
   //inactiveBuffer()->detachData();
@@ -76,7 +76,7 @@ void cChunkMesh::detachData()
 
 /*
 
-void cChunkMesh::startUpdating(cSimpleVertex* &verticesOut, unsigned int* &indicesOut, int maxSize)
+void ChunkMesh::startUpdating(cSimpleVertex* &verticesOut, unsigned int* &indicesOut, int maxSize)
 {
   LOGD("CHUNK MESH MAPPING");
   if(maxSize <= inactiveMaxSize())
@@ -106,7 +106,7 @@ void cChunkMesh::startUpdating(cSimpleVertex* &verticesOut, unsigned int* &indic
       
     }
 }
-void cChunkMesh::finishUpdating(int numIndices, std::vector<cSimpleVertex> &vData, std::vector<unsigned int> &iData)
+void ChunkMesh::finishUpdating(int numIndices, std::vector<cSimpleVertex> &vData, std::vector<unsigned int> &iData)
 {
   //LOGD("UPDATING BUFFER %d", mActiveBuffer);
   inactiveBuffer()->finishUpdating(numIndices, vData, iData);

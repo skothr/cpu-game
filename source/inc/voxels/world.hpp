@@ -14,8 +14,8 @@
 #include <unordered_map>
 #include <unordered_set>
 
-class cShader;
-class cTexAtlas;
+class Shader;
+class TexAtlas;
 
 class World
 {
@@ -34,9 +34,12 @@ public:
   void render(Matrix4 pvm);
 
   void setDebug(bool debug) { mDebug = debug; }
+  void setFluidSim(bool on) { mSimFluids = on; }
+  void setFluidEvap(bool on) { mEvapFluids = on; }
 
   // updating
   void update();
+  void step();
   bool readyForPlayer() const;
   Point3f getStartPos(const Point3i &pPos);
   
@@ -45,12 +48,14 @@ public:
   Point3i getCenter() const;
   void setCamPos(const Point3f &pos) { mCamPos = pos; }
 
-  cBlock* at(const Point3i &p);
-  block_t get(const Point3i &p);
-  bool set(const Point3i &p, block_t type);
+  Block* at(const Point3i &wp);
+  BlockData* getData(const Point3i &wp);
+  block_t getType(const Point3i &wp);
+  Chunk* getChunk(const Point3i &wp);
+  bool setBlock(const Point3i &p, block_t type, BlockData *data = nullptr);
   
   bool rayCast(const Point3f &p, const Vector3f &d, float radius,
-	       cBlock* &blockOut, Point3i &posOut, Vector3i &faceOut );
+	       CompleteBlock &blockOut, Point3i &posOut, Vector3i &faceOut );
   
   static int chunkX(int wx);
   static int chunkY(int wy);
@@ -59,9 +64,11 @@ public:
   
 private:
   bool mInitialized = false;
-  bool mDebug = true;
+  bool mDebug = false;
+  bool mSimFluids = true;
+  bool mEvapFluids = true;
   
-  cChunkLoader mLoader;
+  ChunkLoader mLoader;
   Point3i mCenter;
   Vector3i mLoadRadius;
   Vector3i mChunkDim;
@@ -95,16 +102,17 @@ private:
   
   // rendering
   std::mutex mRenderLock;
-  cShader *mBlockShader = nullptr;
-  cShader *mChunkLineShader = nullptr;
+  Shader *mBlockShader = nullptr;
+  Shader *mChunkLineShader = nullptr;
   cTextureAtlas *mTexAtlas = nullptr;
   
   ThreadQueue<MeshedChunk> mRenderQueue;
   std::unordered_set<int32_t> mUnloadMeshes;
-  ThreadQueue<cChunkMesh> mUnusedMeshes;
-  std::unordered_map<int32_t, cChunkMesh*> mRenderMeshes;
+  ThreadQueue<ChunkMesh> mUnusedMeshes;
+  std::unordered_map<int32_t, ChunkMesh*> mRenderMeshes;
   cMeshBuffer* mChunkLineMesh;
   
+  Block* atBlock(const Point3i &wp, std::unordered_map<int32_t, Chunk*> &neighbors);
   block_t getBlock(const Point3i &wp, std::unordered_map<int32_t, Chunk*> &neighbors);
   void updateAdjacent(const Point3i &wp);
 
@@ -115,7 +123,7 @@ private:
 
   void meshWorker(int tid);
   int getAO(int e1, int e2, int c);
-  int getLighting(const Point3i &bp, const Point3i &vpos, blockSide_t side,
+  int getLighting(const Point3i &bp, const Point3f &vpos, blockSide_t side,
                   std::unordered_map<int32_t, Chunk*> &neighbors );
   void updateChunkMesh(Chunk *chunk, bool priority);
   void addMesh(MeshedChunk *mc);

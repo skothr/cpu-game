@@ -11,11 +11,11 @@
 #include <mutex>
 #include <atomic>
 
-class cRegionFile
+class RegionFile
 {
 public: 
-  cRegionFile(const std::string &filePath, const Vector<uint8_t, 4> &version, bool create = false);
-  ~cRegionFile();
+  RegionFile(const std::string &filePath, const Vector<uint8_t, 4> &version, bool create = false);
+  ~RegionFile();
 
   int size() const             { return mFileSize; }
   bool isOpen() const          { return (mFd >= 0); }
@@ -49,7 +49,7 @@ private:
   bool createFile();
   bool resizeFile(int extraBytes);
   
-  void calcRegionPos();
+  void calRegionPos();
   bool readRegion();
   bool createRegion();
 

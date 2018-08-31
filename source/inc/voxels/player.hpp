@@ -43,7 +43,7 @@ protected:
 
 
 // adds functionality for picking and placing blocks.
-class cShader;
+class Shader;
 class Player : public Camera
 {
 public:
@@ -53,7 +53,7 @@ public:
   void setSelectMode(bool mode);
   void select(const Point2f &pos, const Matrix4 &proj);
 
-  cBlock* selectedBlock();
+  CompleteBlock selectedBlock();
   
   bool pickUp();
   void place();
@@ -78,9 +78,9 @@ protected:
   Point2f mSelectPos; // [-1, 1]
   Vector3f mSelectRay;
 
-  cShader *mWireShader = nullptr;
+  Shader *mWireShader = nullptr;
   cModelObj mHighlightModel;
-  cBlock *mSelectedBlock = nullptr;
+  CompleteBlock mSelectedBlock;
   block_t mSelectedType = block_t::NONE;
   Point3i mSelectedPos;
   Vector3i mSelectedFace;
@@ -94,7 +94,7 @@ protected:
 
   virtual void onUpdate(double dt) {}
   virtual void onPickup(block_t type) {}
-  virtual block_t onPlace() { return block_t::NONE; }
+  virtual CompleteBlock onPlace() { return CompleteBlock{block_t::NONE, nullptr}; }
   
 };
 
@@ -106,16 +106,16 @@ class GodPlayer : public Player
 public:
   GodPlayer(QObject *qparent, Vector3f pos, Vector3f forward, Vector3f up, World *world);
 
-  void setPlaceBlock(block_t type);
+  void setPlaceBlock(block_t type, BlockData *data);
   void nextPlaceBlock();
   void prevPlaceBlock();
   
 protected:
-  block_t mPlaceBlock = block_t::NONE;
+  CompleteBlock mPlaceBlock;
   
   virtual void onUpdate(double dt) override;
   virtual void onPickup(block_t type) override;
-  virtual block_t onPlace() override;
+  virtual CompleteBlock onPlace() override;
 };
 
 
@@ -133,10 +133,11 @@ public:
 
 protected:
   std::queue<block_t> mInventory;
+  block_t mNextBlock;
 
   virtual void onUpdate(double dt) override;
   virtual void onPickup(block_t type) override;
-  virtual block_t onPlace() override;
+  virtual CompleteBlock onPlace() override;
 
   
 };
