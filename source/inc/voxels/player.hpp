@@ -8,6 +8,7 @@
 #include "collision.hpp"
 #include "model.hpp"
 #include "world.hpp"
+#include "frustum.hpp"
 
 #include <queue>
 
@@ -18,8 +19,12 @@ public:
   Camera(Vector3f pos, Vector3f forward, Vector3f up, Vector3f eyeOffset);
 
   void rotate(float pitch, float yaw);
-  Matrix4 getView();
+  Matrix4 getView() const;
+  Matrix4 getProjection() const;
 
+  void setProjection(float fov, float aspect, float zNear, float zFar);
+  Frustum* getFrustum();
+  
   void setPos(const Point3f &newPos);
 
   Vector3f getEye() const;
@@ -27,17 +32,8 @@ public:
 
 protected:
   const Vector3f mEyeOffset;
-  
-  Matrix4 mViewMat;
-  Vector3f mForward;
-  Vector3f mUp;
-  Vector3f mRight;
-  int mLookingUp = 0;
-  
-  float mPitch = 0.0;
-  float mPitchMult = 1.0;
-  float mYawMult = 1.0;
-  float mMoveSpeed = 1.0;
+
+  Frustum mFrustum;
 };
 
 

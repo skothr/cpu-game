@@ -13,65 +13,46 @@ static const Vector3f PLAYER_SIZE{0.9, 0.9, 1.9};
 // pos should be the BOTTOM-CENTER of the player's bounding box.
 Camera::Camera(Vector3f pos, Vector3f forward, Vector3f up, Vector3f eyeOffset)
   : cCollidable(pos + Vector3f{0,0,PLAYER_SIZE[2]*0.5f}, PLAYER_SIZE),
-    mForward(forward.normalized()), mUp(up.normalized()),
-    mRight(crossProduct(forward, up).normalized()), mEyeOffset(eyeOffset)
+    mEyeOffset(eyeOffset)
 {
-  
+  mFrustum.setView(forward, up);
+  mFrustum.setPos(mBox.center() + eyeOffset);
 }
+
+void Camera::setProjection(float fov, float aspect, float zNear, float zFar)
+{
+  mFrustum.setProjection(fov, aspect, zNear, zFar);
+}
+
+Frustum* Camera::getFrustum()
+{ return &mFrustum; }
 
 void Camera::setPos(const Point3f &newPos)
 {
-  mBox.setCenter(newPos + Vector3f{0,0,PLAYER_SIZE[2]*0.5f});
+  mFrustum.setPos(newPos + mEyeOffset);
 }
 
 void Camera::rotate(float pitch, float yaw)
 {
-  QMatrix4x4 rot;
-  rot.rotate(yaw * mYawMult, toQt(mUp));
-  mForward = (mForward.asVector()*Matrix4(rot).transposed()).normalized();
-  mRight = (crossProduct(mForward, mUp)).normalized();
-
-  mPitch += pitch/-100.0f;
-  if(mPitch > 1.0f)
-    { mPitch = 1.0f; }
-  else if(mPitch < -1.0f)
-    { mPitch = -1.0f; }
+  mFrustum.rotate(pitch, yaw);
 }
 
 Vector3f Camera::getEye() const
 {
-  return (mForward*(1.0 - std::abs(mPitch)) + mUp * (mPitch)).normalized();
+  return mFrustum.getEye();
 }
 Point3f Camera::getPos() const
 {
   return mBox.center();
 }
 
-Matrix4 Camera::getView()
+Matrix4 Camera::getView() const
 {
-  //std::cout << "Vpos:     " << mBox.center() << "\n";
-  //std::cout << "Vforward: " << mForward << "\n";
-  //std::cout << "Vup     : " << mUp << "\n";
-  QMatrix4x4 v;
-  v.lookAt(toQt(mBox.center() + mEyeOffset), toQt(mBox.center() + mEyeOffset + getEye()), toQt((std::abs(mPitch) == 1.0f ? mForward*-mPitch : mUp)));
-  
-  /*
-  //std::cout << "VIEW:\n";
-  for(int r = 0; r < 4; r++)
-  {
-  for(int c = 0; c < 4; c++)
-  {
-  std::cout << v(r, c) << " ";
-  }
-  std::cout << "\n";
-  }
-  */
-
-  //std::cout << "F: " << mForward << ", P: " << mBox.center() << ", U: " << mUp << "\n";
-  //std::cout << "VIEW: " << Matrix4(v) << "\n\n";
-  //Matrix4 m = Matrix4(v);
-  //std::cout << v(0,0) << ", " << v(2, 1) << ", " << v(1, 2) << ", " << v(1, 3) << "\n";
-  return Matrix4(v);//matView(mBox.center(), mForward, mUp);;
+  return mFrustum.getView();
+}
+Matrix4 Camera::getProjection() const
+{
+  return mFrustum.getProjection();
 }
 
 
@@ -116,7 +97,7 @@ void Player::select(const Point2f &pos, const Matrix4 &proj)
       // inverse view
       Vector<float, 4> rayWorld = vInv * rayEye;
       mSelectRay = Vector3f({rayWorld[0], rayWorld[1], rayWorld[2]}).normalized();
-    }
+    } 
 }
 
 CompleteBlock Player::selectedBlock()
@@ -236,9 +217,12 @@ void Player::update(double dt)
 {
   onUpdate(dt);
   
-  Vector3f right = crossProduct(mForward, mUp).normalized();
+  Vector3f forward = mFrustum.getForward();
+  Vector3f right = mFrustum.getRight();
+  Vector3f up = mFrustum.getUp();
+
   
-  mAccel = Vector3f{right[0], right[1], 0.0}  * mMoveForce[0] + Vector3f{mForward[0], mForward[1], 0} * mMoveForce[1] + mUp * mMoveForce[2] - mVel*800.0f*dt;
+  mAccel = Vector3f{right[0], right[1], 0.0}  * mMoveForce[0] + Vector3f{forward[0], forward[1], 0} * mMoveForce[1] + up * mMoveForce[2] - mVel*800.0f*dt;
   mVel += mAccel * dt;
   
   Vector3f dPos = mVel * dt;
@@ -392,6 +376,8 @@ void Player::update(double dt)
   
   mVel[0] *= DRAG;
   mVel[1] *= DRAG;
+
+  setPos(mBox.center());
 }
 
 

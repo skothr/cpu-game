@@ -226,6 +226,10 @@ void cGameWidget::keyPressEvent(QKeyEvent *event)
       data.type = input_t::ACTION_SNEAK;
       data.action.magnitude = 1.0;
       break;
+
+    case Qt::Key_P:
+      mEngine->getWorld()->setFrustumPause();
+      break;
       
     default:
       event->ignore();

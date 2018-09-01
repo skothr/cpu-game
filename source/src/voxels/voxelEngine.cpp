@@ -36,6 +36,7 @@ VoxelEngine::VoxelEngine(QObject *qParent, int numThreads, const std::string &wo
       LOGE("WORLD FAILED TO LOAD FILE!!");
       exit(1);
     }
+  mWorld.setFrustum(mPlayer.getFrustum());
 }
 
 VoxelEngine::~VoxelEngine()
@@ -103,8 +104,8 @@ bool VoxelEngine::initGL(QObject *qparent)
   glEnable(GL_CULL_FACE);
 
   // matrices
-  Matrix4 viewMat = mPlayer.getView();
-  mProjMat = matProjection(PLAYER_FOV, PLAYER_ASPECT, PLAYER_Z_NEAR, PLAYER_Z_FAR);
+  //Matrix4 viewMat = mPlayer.getView();
+  //mProjMat = matProjection(PLAYER_FOV, PLAYER_ASPECT, PLAYER_Z_NEAR, PLAYER_Z_FAR);
 
   // initialize
   mWorld.initGL(qparent);
@@ -170,7 +171,8 @@ void VoxelEngine::render()
       else
         { glPolygonMode(GL_FRONT_AND_BACK, GL_FILL); }
     }
-  Matrix4 m = mProjMat * mPlayer.getView();
+  //  Matrix4 m = mProjMat * mPlayer.getView();
+  Matrix4 m = mPlayer.getProjection() * mPlayer.getView();
   mWorld.setCamPos(mPlayer.getPos());
   mWorld.render(m);
   mPlayer.render(m);
@@ -193,15 +195,20 @@ World* VoxelEngine::getWorld()
 { return &mWorld; }
 
 VoxelEngine::ProjDesc VoxelEngine::getProjection() const
-{ return mProjDesc; }
+{
+  return {}; //mPlayer.getProjection();//mProjDesc;
+}
 
 void VoxelEngine::setProjection(const ProjDesc &desc)
 {
+  mPlayer.setProjection(desc.fov, desc.aspect, desc.znear, desc.zfar);
+  /*
   std::memcpy((void*)&mProjDesc, (void*)&desc, sizeof(ProjDesc));
   
   QMatrix4x4 p;
   p.perspective(mProjDesc.fov, mProjDesc.aspect, mProjDesc.znear, mProjDesc.zfar);
   mProjMat = p;
+  */
 }
 
 void VoxelEngine::setLightLevel(int lightLevel)
@@ -258,7 +265,7 @@ break;
       else
         {
           mPlayer.setSelectMode(true);
-          mPlayer.select(data.mouseMove.vPos * 2.0f - 1.0f, mProjMat);
+          mPlayer.select(data.mouseMove.vPos * 2.0f - 1.0f, mPlayer.getFrustum()->getProjection());//mProjMat);
         }
       break;
     case input_t::MOUSE_CLICK:

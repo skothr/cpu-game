@@ -34,6 +34,8 @@ protected slots:
   void setFluidSim(int on);
   void setFluidEvap(int on);
   void setFluidLevel(int level);
+  void setChunkRadiusXY(int radius);
+  void setChunkRadiusZ(int radius);
 
 protected:
   

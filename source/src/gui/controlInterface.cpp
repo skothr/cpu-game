@@ -117,6 +117,20 @@ void cControlInterface::setFluidEvap(int on)
 {
   mWorld->setFluidEvap(on != 0);
 }
+void cControlInterface::setChunkRadiusXY(int radius)
+{
+  Vector3i rad = mWorld->getRadius();
+  rad[0] = radius;
+  rad[1] = radius;
+  mWorld->setRadius(rad);
+}
+
+void cControlInterface::setChunkRadiusZ(int radius)
+{
+  Vector3i rad = mWorld->getRadius();
+  rad[2] = radius;
+  mWorld->setRadius(rad);
+}
 
 void cControlInterface::setFluidLevel(int level)
 {
@@ -221,24 +235,44 @@ QGroupBox* cControlInterface::makeLightGroup()
 {
   mLightGroup = new QButtonGroup(this);
   QGroupBox *group = new QGroupBox("Light");
-  QVBoxLayout *vbox = new QVBoxLayout();
-  QHBoxLayout *sbox = new QHBoxLayout();
+  QGridLayout *grid = new QGridLayout();
   
+  // slider to adjust global daylight
   QLabel *sLabel = new QLabel("Light Level");
-  
   QSlider *lSlider = new QSlider(Qt::Horizontal);
   lSlider->setTickInterval(1);
   lSlider->setTickPosition(QSlider::TicksBelow);
   lSlider->setMinimum(1);
   lSlider->setMaximum(mEngine->mLightLevels);
+  lSlider->setValue(4);
   connect(lSlider, SIGNAL(sliderMoved(int)), this, SLOT(setLightLevel(int)));
-
-  sbox->addWidget(sLabel);
-  sbox->addWidget(lSlider);
-  vbox->addLayout(sbox);
-  vbox->setMargin(20);
-  vbox->setSpacing(0);
-  group->setLayout(vbox);
+  grid->addWidget(sLabel, 0,0,1,1);
+  grid->addWidget(lSlider,0,1,1,3);
+  
+  // Sliders to adjust chunk load radius
+  QLabel *xyLabel = new QLabel("X/Y Load Radius");
+  QSlider *xySlider = new QSlider(Qt::Horizontal);
+  xySlider->setTickInterval(1);
+  xySlider->setTickPosition(QSlider::TicksBelow);
+  xySlider->setMinimum(0);
+  xySlider->setMaximum(16);
+  xySlider->setValue(mWorld->getRadius()[0]);
+  connect(xySlider, SIGNAL(sliderMoved(int)), this, SLOT(setChunkRadiusXY(int)));
+  grid->addWidget(xyLabel, 0,7,1,1);
+  grid->addWidget(xySlider,0,8,1,3);
+  
+  QLabel *zLabel = new QLabel("Z Load Radius");
+  QSlider *zSlider = new QSlider(Qt::Horizontal);
+  zSlider->setTickInterval(1);
+  zSlider->setTickPosition(QSlider::TicksBelow);
+  zSlider->setMinimum(1);
+  zSlider->setMaximum(8);
+  zSlider->setValue(mWorld->getRadius()[2]);
+  connect(zSlider, SIGNAL(sliderMoved(int)), this, SLOT(setChunkRadiusZ(int)));
+  grid->addWidget(zLabel, 1,7,1,1);
+  grid->addWidget(zSlider,1,8,1,3);
+  
+  group->setLayout(grid);
   return group;
 }
 QGroupBox* cControlInterface::makeDebugGroup()

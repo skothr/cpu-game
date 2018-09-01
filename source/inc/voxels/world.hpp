@@ -8,6 +8,7 @@
 #include "threadQueue.hpp"
 #include "threadPool.hpp"
 #include "miscMath.hpp"
+#include "frustum.hpp"
 
 #include <mutex>
 #include <atomic>
@@ -37,6 +38,10 @@ public:
   void setFluidSim(bool on) { mSimFluids = on; }
   void setFluidEvap(bool on) { mEvapFluids = on; }
 
+  void setFrustum(Frustum *frustum);
+  void setFrustumClip(bool on);
+  void setFrustumPause();
+
   // updating
   void update();
   void step();
@@ -45,7 +50,9 @@ public:
   
   void setLightLevel(int level) { mLighting = level; }
   void setCenter(const Point3i &chunkCenter);
+  void setRadius(const Vector3i &chunkRadius);
   Point3i getCenter() const;
+  Vector3i getRadius() const { return mLoadRadius; }
   void setCamPos(const Point3f &pos) { mCamPos = pos; }
 
   Block* at(const Point3i &wp);
@@ -67,6 +74,14 @@ private:
   bool mDebug = false;
   bool mSimFluids = true;
   bool mEvapFluids = true;
+  bool mClipFrustum = true;
+
+  Frustum *mFrustum;
+  std::unordered_map<int32_t, bool> mFrustumRender;
+  
+  float mFogStart;
+  float mFogEnd;
+  bool mRadChanged = false;
   
   ChunkLoader mLoader;
   Point3i mCenter;

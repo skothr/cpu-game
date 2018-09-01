@@ -45,7 +45,7 @@ public:
   struct ProjDesc
   {
     float aspect = 1.0;
-    float fov = 45.0;
+    float fov = 60.0;
     float znear = 0.01;
     float zfar = 1000.0;
   } mProjDesc;
@@ -67,7 +67,7 @@ private:
   TimedThread mPhysicsThread;
   TimedThread mBlockThread;
   ThreadPool mMainThread;
-  Matrix4 mProjMat;
+  //Matrix4 mProjMat;
   bool mWireframe = false;
   bool mWireframeChanged = false;
 

@@ -70,9 +70,9 @@ void GlWidget::initializeGL()
   glEnable(GL_DEPTH_TEST);
   glDepthMask(GL_TRUE);
   glClearColor(0.0, 0.0, 0.0, 1.0);
+  
   glEnable(GL_BLEND);
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
   glEnable(GL_LINE_SMOOTH);
   glHint(GL_LINE_SMOOTH_HINT, GL_NICEST);
   

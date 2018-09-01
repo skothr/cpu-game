@@ -15,6 +15,8 @@ World::World(int loadThreads, const Point3i &center, const Vector3i &loadRadius)
     mMeshPool(4, std::bind(&World::meshWorker, this, std::placeholders::_1), MESH_SLEEP_US),
     mCenter(center), mLoadRadius(loadRadius), mChunkDim(loadRadius * 2 + 1),
     mMinChunk(center - loadRadius), mMaxChunk(center + loadRadius),
+    mFogStart((loadRadius[0]*Chunk::sizeX)*0.9f),
+    mFogEnd((loadRadius[0]*Chunk::sizeX)*1.0f),
     mCenterLoopCallback(std::bind(&World::checkChunkLoad, this, std::placeholders::_1))
 { }
 
@@ -72,6 +74,7 @@ bool World::loadWorld(std::string worldName, uint32_t seed)
 
 void World::initGL(QObject *qparent)
 {
+  
   // load shaders
   mBlockShader = new Shader(qparent);
   if(!mBlockShader->loadProgram("./shaders/simpleBlock.vsh", "./shaders/simpleBlock.fsh",
@@ -82,8 +85,8 @@ void World::initGL(QObject *qparent)
     }
   mBlockShader->bind();
   mBlockShader->setUniform("uTex", 0);
-  mBlockShader->setUniform("fogStart", (float)mLoadRadius[0]*Chunk::sizeX*0.9f);
-  mBlockShader->setUniform("fogEnd", (float)mLoadRadius[0]*Chunk::sizeX*1.1f);
+  mBlockShader->setUniform("fogStart", mFogStart);
+  mBlockShader->setUniform("fogEnd", mFogEnd);
   mBlockShader->release();
   
   mChunkLineShader = new Shader(qparent);
@@ -94,8 +97,8 @@ void World::initGL(QObject *qparent)
       LOGE("Chunk line shader failed to load!");
     }
   mChunkLineShader->bind();
-  mChunkLineShader->setUniform("fogStart", (float)mLoadRadius[0]*Chunk::sizeX*0.9f);
-  mChunkLineShader->setUniform("fogEnd", (float)mLoadRadius[0]*Chunk::sizeX*1.1f);
+  mChunkLineShader->setUniform("fogStart", mFogStart);
+  mChunkLineShader->setUniform("fogEnd", mFogEnd);
   mChunkLineShader->release();
 
   mChunkLineMesh = new cMeshBuffer();
@@ -186,10 +189,29 @@ void World::render(Matrix4 pvm)
   mTexAtlas->bind();
   mBlockShader->setUniform("pvm", pvm);
   mBlockShader->setUniform("camPos", mCamPos);
+
+  bool changed = false;
+  if(mRadChanged)
+    {
+      mBlockShader->setUniform("fogStart", mFogStart);
+      mBlockShader->setUniform("fogEnd", mFogEnd);
+      changed = true;
+      mRadChanged = false;
+    }
   {
     //LOGD("RENDERING");
     for(auto &iter : mRenderMeshes)
-      { iter.second->render(); }
+      {
+        /*
+        if((!mClipFrustum && mFrustumRender[iter.first]) ||
+           (mClipFrustum && mFrustum &&
+            mFrustum->cubeInside(Hash::unhash(iter.first)*Chunk::size, Chunk::size, pvm)))
+          {
+            iter.second->render();
+          }
+        */
+        iter.second->render();
+      }
   }
   mBlockShader->release();
   mTexAtlas->release();
@@ -202,6 +224,11 @@ void World::render(Matrix4 pvm)
                                                            mMinChunk[1]*Chunk::sizeY,
                                                            mMinChunk[2]*Chunk::sizeZ ));
       mChunkLineShader->setUniform("camPos", mCamPos);
+      if(changed)
+        {
+          mChunkLineShader->setUniform("fogStart", mFogStart);
+          mChunkLineShader->setUniform("fogEnd", mFogEnd);
+        }
       
       mChunkLineMesh->render();
       
@@ -281,6 +308,10 @@ void World::update()
             mChunks.erase(cHash);
             mNeighborsLoaded.erase(cHash);
 
+            {
+              std::lock_guard<std::mutex> lock(mMeshLock);
+              mMeshing.erase(cHash);
+            }
             std::lock_guard<std::mutex> lock(mRenderLock);
             mUnloadMeshes.insert(cHash);
           }
@@ -315,21 +346,18 @@ void World::update()
             //LOGD("  LOADED --> %d %d %d", chunk->pos()[0], chunk->pos()[1], chunk->pos()[2]);
             //LOGD("LOAD CHUNK --> %d %d %d", chunk->pos()[0], chunk->pos()[1], chunk->pos()[2]);
             // update mesh
-            if(!chunk->isEmpty())
+            if(chunk->isEmpty())
+              {
+                chunk->setDirty(false);
+                chunk->setIncomplete(false);
+                chunk->setPriority(false);
+              }
+            else
               {
                 //LOGD("CHUNK NOT EMPTY");
                 chunk->setDirty(true);
                 chunk->setIncomplete(true);
                 chunk->setPriority(false);
-              }
-            else
-              {
-                //LOGD("CHUNK  EMPTY");
-                chunk->setDirty(false);
-                chunk->setIncomplete(false);
-                chunk->setPriority(false);
-                //std::lock_guard<std::mutex> lock(mRenderLock);
-                //mUnloadMeshes.insert(cHash);
               }
             mChunks[cHash] = chunk;
           }
@@ -998,14 +1026,57 @@ Point3f World::getStartPos(const Point3i &pPos)
 void World::setCenter(const Point3i &chunkCenter)
 {
   std::lock_guard<std::mutex> lock(mChunkLock);
-  std::cout << "BEFORE --> CENTER: " << mCenter << ", MIN: " << mMinChunk << ", MAX: " << mMaxChunk << "\n"; 
+  LOGI("Moving center from (%d, %d, %d) to (%d, %d, %d)", mCenter[0], mCenter[1], mCenter[2],
+       chunkCenter[0], chunkCenter[1], chunkCenter[2] );
   mCenter = chunkCenter;
   mMinChunk = mCenter - mLoadRadius;
   mMaxChunk = mCenter + mLoadRadius;
-  std::cout << "AFTER --> CENTER: " << mCenter << ", MIN: " << mMinChunk << ", MAX: " << mMaxChunk << "\n";
+}
+void World::setRadius(const Vector3i &chunkRadius)
+{
+  std::lock_guard<std::mutex> lock(mChunkLock);
+  LOGI("Setting chunk radius to (%d, %d, %d)", chunkRadius[0], chunkRadius[1], chunkRadius[2]);
+  mLoadRadius = chunkRadius;
+  mChunkDim = mLoadRadius * 2 + 1;
+  mMinChunk = mCenter - mLoadRadius;
+  mMaxChunk = mCenter + mLoadRadius;
+
+  mFogStart = (mLoadRadius[0]*Chunk::sizeX)*0.9f;
+  mFogEnd = (mLoadRadius[0]*Chunk::sizeX)*1.0f;
+  mRadChanged = true;
 }
 Point3i World::getCenter() const
 { return mCenter; }
+
+void World::setFrustum(Frustum *frustum)
+{ mFrustum = frustum; }
+void World::setFrustumClip(bool on)
+{ mClipFrustum = on; }
+
+void World::setFrustumPause()
+{
+  std::lock_guard<std::mutex> lock(mRenderLock);
+  Matrix4 pvm = mFrustum->getProjection() * mFrustum->getView();
+  if(mClipFrustum)
+    {
+      mFrustumRender.clear();
+      int num = 0;
+      for(auto &iter : mRenderMeshes)
+        {
+          if(mFrustum->cubeInside(Hash::unhash(iter.first)*Chunk::size, Chunk::size, pvm))
+            { mFrustumRender[iter.first] = true; num++; }
+          else
+            { mFrustumRender[iter.first] = false; }
+        }
+      mClipFrustum = false;
+      std::cout << "FRUSTUM PAUSED --> " << num << " / " << mRenderMeshes.size() << " chunks rendered.\n";
+    }
+  else
+    {
+      mClipFrustum = true;
+      std::cout << "FRUSTUM UNPAUSED\n";
+    }
+}
 
 
 int World::chunkX(int wx)
