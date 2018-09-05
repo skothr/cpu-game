@@ -3,136 +3,241 @@
 #include "timing.hpp"
 #include "shader.hpp"
 #include "textureAtlas.hpp"
+#include "chunkLoader.hpp"
 #include "pointMath.hpp"
 #include "hashing.hpp"
 #include "meshBuffer.hpp"
+#include "params.hpp"
+#include "fluid.hpp"
+#include "fluidChunk.hpp"
 #include <unistd.h>
 
-#define MESH_SLEEP_US 10000
-
-World::World(int loadThreads, const Point3i &center, const Vector3i &loadRadius)
-  : mLoader(loadThreads, std::bind(&World::chunkLoadCallback, this, std::placeholders::_1)),
-    mMeshPool(4, std::bind(&World::meshWorker, this, std::placeholders::_1), MESH_SLEEP_US),
-    mCenter(center), mLoadRadius(loadRadius), mChunkDim(loadRadius * 2 + 1),
-    mMinChunk(center - loadRadius), mMaxChunk(center + loadRadius),
-    mFogStart((loadRadius[0]*Chunk::sizeX)*0.9f),
-    mFogEnd((loadRadius[0]*Chunk::sizeX)*1.0f),
-    mCenterLoopCallback(std::bind(&World::checkChunkLoad, this, std::placeholders::_1))
-{ }
+World::World()
+  : mLoader(new ChunkLoader(1, std::bind(&World::chunkLoadCallback, this, std::placeholders::_1))),
+    mCenterLoopCallback(std::bind(&World::checkChunkLoad, this, std::placeholders::_1)),
+    mMeshPool(1, std::bind(&World::meshWorker, this, std::placeholders::_1),
+              MESH_THREAD_SLEEP_MS*1000)
+{
+  mFluids.setRange(mMinChunk, mMaxChunk);
+}
 
 World::~World()
 {
-  stopLoading();
+  stop();
+  mLoader->flush();
+  delete mLoader;
   for(auto &chunk : mChunks)
     {
       if(chunk.second)
         { delete chunk.second; }
     }
-  while(mUnusedChunks.size() > 0)
+  while(mLoadQueue.size() > 0)
     {
-      Chunk *chunk = mUnusedChunks.pop();
+      Chunk *chunk = mLoadQueue.front();
+      mLoadQueue.pop();
       if(chunk)
         { delete chunk; }
     }
-  delete mChunkLineMesh;
+  while(mUnusedChunks.size() > 0)
+    {
+      Chunk *chunk = mUnusedChunks.front();
+      mUnusedChunks.pop();
+      if(chunk)
+        { delete chunk; }
+    }
 }
 
-bool World::loadWorld(std::string worldName, uint32_t seed)
+void World::start()
 {
-  LOGD("SETTING WORLD");
-  if(worldName == "")
+  mLoader->start();
+  mMeshPool.start();
+}
+void World::stop()
+{
+  mLoader->stop();
+  mMeshPool.stop(false);
+  mMeshCv.notify_all();
+  mMeshPool.stop(true);
+}
+
+std::vector<World::Options> World::getWorlds() const
+{
+  return mLoader->getWorlds();
+}
+bool World::worldExists(const std::string &name) const
+{
+  std::vector<std::string> worlds = mLoader->listWorlds();
+  for(auto &w : worlds)
     {
-      std::cout << "Enter world name:  ";
-      std::cin >> worldName;
+      if(w == name)
+        { return true; }
     }
-  
-  std::vector<std::string> worlds = mLoader.listWorlds();
-  bool found = false;
-  for(auto w : worlds)
+  return false;
+}
+void World::updateInfo(const World::Options &opt)
+{
+  mLoader->setThreads(opt.loadThreads);
+  mMeshPool.setThreads(opt.meshThreads);
+  mLoadRadius = opt.chunkRadius;
+  mChunkDim = mLoadRadius * 2 + 1;
+  mMinChunk = mCenter - mLoadRadius;
+  mMaxChunk = mCenter + mLoadRadius;
+  mFluids.setRange(mMinChunk, mMaxChunk);
+
+  Vector3f bSize = mLoadRadius*Chunk::size;
+  if(bSize[0] == 0) bSize[0] += Chunk::sizeX/2;
+  if(bSize[1] == 0) bSize[1] += Chunk::sizeY/2;
+  if(bSize[2] == 0) bSize[2] += Chunk::sizeZ/2;
+  float minDim = std::min(bSize[0], std::min(bSize[1], bSize[2]));
+  mDirScale = Vector3f{minDim/bSize[0],minDim/bSize[1],minDim/bSize[2]};
+  mDirScale *= mDirScale;
+  mFogStart = (minDim)*0.98f;
+  mFogEnd = (minDim)*1.0f;
+
+  // mFogStart = (mLoadRadius[0]*Chunk::sizeX)*0.9f;
+  // mFogEnd = (mLoadRadius[0]*Chunk::sizeX)*1.0f;
+}
+bool World::loadWorld(const World::Options &opt)
+{
+  LOGI("Loading world...");
+  if(opt.name == "")
     {
-      if(w == worldName)
-        {
-          found = true;
-          break;
-        }
-    }
-  if(!found)
-    {
-      if(!mLoader.createWorld(worldName, seed))
-        {
-          LOGD("FAILED TO CREATE WORLD");
-          return false;
-        }
-    }
-  if(!mLoader.loadWorld(worldName))
-    {
-      LOGD("FAILED TO LOAD WORLD");
+      LOGW("Please provide a world name!");
       return false;
     }
-  return true;
+  else if(!worldExists(opt.name))
+    {
+      LOGW("Failed to load -- world doesn't exist!");
+      return false;
+    }
+  else if(!mLoader->loadWorld(opt.name))
+    {
+      LOGE("Failed to load world!");
+      return false;
+    }
+  else
+    {
+      updateInfo(opt);
+      LOGI("Done loading world.");
+      return true;
+    }
 }
+
+bool World::createWorld(const World::Options &opt, bool overwrite)
+{
+  if(opt.name == "")
+    {
+      LOGW("Please provide a world name!");
+      return false;
+    }
+  else if(!loadWorld(opt) || overwrite)
+    {
+      LOGI("Creating world...");
+      if(!mLoader->createWorld(opt.name, opt.terrain, opt.seed))
+        {
+          LOGE("Failed to create world!");
+          return false;
+        }
+      else if(!mLoader->loadWorld(opt.name))
+        {
+          LOGE("Failed to create world!");
+          return false;
+        }
+          
+      updateInfo(opt);
+      LOGI("Done creating world.");
+      return true;
+    }
+  else
+    {
+      if(overwrite)
+        { LOGW("World exists -- no overwrite"); }
+      return false;
+    }
+}
+
+
 
 void World::initGL(QObject *qparent)
 {
-  
-  // load shaders
-  mBlockShader = new Shader(qparent);
-  if(!mBlockShader->loadProgram("./shaders/simpleBlock.vsh", "./shaders/simpleBlock.fsh",
-                                {"posAttr", "normalAttr", "texCoordAttr"},
-                                {"pvm", "camPos", "fogStart", "fogEnd", "uTex"} ))
+  if(!mInitialized)
     {
-      LOGE("Simple block shader failed to load!");
-    }
-  mBlockShader->bind();
-  mBlockShader->setUniform("uTex", 0);
-  mBlockShader->setUniform("fogStart", mFogStart);
-  mBlockShader->setUniform("fogEnd", mFogEnd);
-  mBlockShader->release();
+      // load shaders
+      mBlockShader = new Shader(qparent);
+      if(!mBlockShader->loadProgram("./shaders/simpleBlock.vsh", "./shaders/simpleBlock.fsh",
+                                    {"posAttr", "normalAttr", "texCoordAttr"},
+                                    {"pvm", "camPos", "fogStart", "fogEnd", "uTex", "dirScale"} ))
+        {
+          LOGE("Simple block shader failed to load!");
+        }
+      mBlockShader->bind();
+      mBlockShader->setUniform("uTex", 0);
+      mBlockShader->setUniform("fogStart", mFogStart);
+      mBlockShader->setUniform("fogEnd", mFogEnd);
+      mBlockShader->setUniform("dirScale", mDirScale);
+      mBlockShader->release();
   
-  mChunkLineShader = new Shader(qparent);
-  if(!mChunkLineShader->loadProgram("./shaders/chunkLine.vsh", "./shaders/chunkLine.fsh",
-                                    {"posAttr", "normalAttr",  "texCoordAttr"},
-                                    {"pvm", "camPos", "fogStart", "fogEnd"} ))
-    {
-      LOGE("Chunk line shader failed to load!");
+      mChunkLineShader = new Shader(qparent);
+      if(!mChunkLineShader->loadProgram("./shaders/chunkLine.vsh", "./shaders/chunkLine.fsh",
+                                        {"posAttr", "normalAttr",  "texCoordAttr"},
+                                        {"pvm", "camPos", "fogStart", "fogEnd", "dirScale"} ))
+        {
+          LOGE("Chunk line shader failed to load!");
+        }
+      mChunkLineShader->bind();
+      mChunkLineShader->setUniform("fogStart", mFogStart);
+      mChunkLineShader->setUniform("fogEnd", mFogEnd);
+      mChunkLineShader->setUniform("dirScale", mDirScale);
+      mChunkLineShader->release();
+
+      mChunkLineMesh = new cMeshBuffer();
+      mChunkLineMesh->initGL(mChunkLineShader);
+      mChunkLineMesh->setMode(GL_LINES);
+
+      // load block textures
+      mTexAtlas = new cTextureAtlas(qparent, ATLAS_BLOCK_SIZE);
+      if(!mTexAtlas->create("./res/texAtlas.png"))
+        { LOGE("Failed to load texture atlas!"); }
+      
+      mInitialized = true;
     }
-  mChunkLineShader->bind();
-  mChunkLineShader->setUniform("fogStart", mFogStart);
-  mChunkLineShader->setUniform("fogEnd", mFogEnd);
-  mChunkLineShader->release();
-
-  mChunkLineMesh = new cMeshBuffer();
-  mChunkLineMesh->initGL(mChunkLineShader);
-  mChunkLineMesh->setMode(GL_LINES);
-
-  // load block textures
-  mTexAtlas = new cTextureAtlas(qparent, ATLAS_BLOCK_SIZE);
-  if(!mTexAtlas->create("./res/texAtlas.png"))
-    { LOGE("Failed to load texture atlas!"); }
 }
 void World::cleanupGL()
 {
-  delete mBlockShader;
-  delete mChunkLineShader;
-  mTexAtlas->destroy();
-  delete mTexAtlas;
+  if(mInitialized)
+    {
+      delete mChunkLineMesh;
+      delete mBlockShader;
+      delete mChunkLineShader;
+      mTexAtlas->destroy();
+      delete mTexAtlas;
 
-  std::lock_guard<std::mutex> lock(mRenderLock);
-  for(auto mesh : mRenderMeshes)
-    {
-      mesh.second->cleanupGL();
-      delete mesh.second;
-    }
-  mRenderMeshes.clear();
-  while(mUnusedMeshes.size() > 0)
-    {
-      ChunkMesh *mesh = mUnusedMeshes.pop();
-      mesh->cleanupGL();
-      delete mesh;
+      std::lock_guard<std::mutex> lock(mRenderLock);
+      for(auto mesh : mRenderMeshes)
+        {
+          mesh.second->cleanupGL();
+          delete mesh.second;
+        }
+      mRenderMeshes.clear();
+      while(mUnusedMeshes.size() > 0)
+        {
+          ChunkMesh *mesh = mUnusedMeshes.front();
+          mUnusedMeshes.pop();
+          mesh->cleanupGL();
+          delete mesh;
+        }
+      std::lock_guard<std::mutex> llock(mUnusedMCLock);
+      while(mUnusedMC.size() > 0)
+        {
+          MeshedChunk *mc = mUnusedMC.front();
+          mUnusedMC.pop();
+          delete mc;
+        }
+      mInitialized = false;
     }
 }
 
-#define RENDER_LOAD_MESH_PER_FRAME 8
+#define RENDER_LOAD_MESH_PER_FRAME 2
 
 void World::addMesh(MeshedChunk *mc)
 {
@@ -142,10 +247,18 @@ void World::addMesh(MeshedChunk *mc)
       mUnusedMeshes.push(iter->second);
       mRenderMeshes.erase(iter->first);
     }
+  else
+    {
+      std::lock_guard<std::mutex> lock(mMeshedLock);
+      mMeshed.insert(mc->hash);
+    }
   
   ChunkMesh *mesh;
   if(mUnusedMeshes.size() > 0)
-    { mesh = mUnusedMeshes.pop(); }
+    {
+      mesh = mUnusedMeshes.front();
+      mUnusedMeshes.pop();
+    }
   else
     {
       mesh = new ChunkMesh();
@@ -153,36 +266,82 @@ void World::addMesh(MeshedChunk *mc)
     }
   mesh->uploadData(mc->mesh);
   mRenderMeshes[mc->hash] = mesh;
-  delete mc;
+
+  std::lock_guard<std::mutex> lock(mUnusedMCLock);
+  mUnusedMC.push(mc);
 }
 
 void World::render(Matrix4 pvm)
 {
   {
-    // upload any new chunk meshes
-    std::lock_guard<std::mutex> lock(mRenderLock);
     int num = 0;
-    for(auto hash : mUnloadMeshes)
-      {
-        //LOGD("MESH UNLOAD");
-        auto iter = mRenderMeshes.find(hash);
-        if(iter != mRenderMeshes.end())
-          {
-            ChunkMesh *mesh = iter->second;
-            mRenderMeshes.erase(iter->first);
-            mUnusedMeshes.push(mesh);
-          }
-      }
+    std::lock_guard<std::mutex> lock(mRenderQueueLock);
     while(mRenderQueue.size() > 0)
       {
-        MeshedChunk *mc = mRenderQueue.pop();
+        MeshedChunk *mc = mRenderQueue.front();
+        mRenderQueue.pop();
         addMesh(mc);
         
         if(++num >= RENDER_LOAD_MESH_PER_FRAME)
           { break; }
       }
+    // update fluid meshes
+    auto updates = mFluids.getUpdates();
+    for(auto iter : updates)
+      {
+        int32_t hash = iter.first;
+        MeshData *data = iter.second;
+        auto iter2 = mFluidMeshes.find(hash);
+        if(iter2 != mFluidMeshes.end())
+          {
+            mUnusedMeshes.push(iter2->second);
+            mFluidMeshes.erase(iter2->first);
+          }
+
+        if(data)
+          { // null data means to remove mesh.
+            ChunkMesh *mesh;
+            if(mUnusedMeshes.size() > 0)
+              {
+                mesh = mUnusedMeshes.front();
+                mUnusedMeshes.pop();
+              }
+            else
+              {
+                mesh = new ChunkMesh();
+                mesh->initGL(mBlockShader);
+              }
+            mesh->uploadData(*data);
+            delete data;
+            mFluidMeshes.emplace(hash, mesh);
+          }
+      }
+  }
+  {
+    std::lock_guard<std::mutex> lock(mUnloadMeshLock);
+    for(auto hash : mUnloadMeshes)
+      {
+        auto iter = mRenderMeshes.find(hash);
+        if(iter != mRenderMeshes.end())
+          {
+            ChunkMesh *mesh = iter->second;
+            mRenderMeshes.erase(hash);
+            mUnusedMeshes.push(mesh);
+            
+            std::lock_guard<std::mutex> lock(mMeshedLock);
+            mMeshed.erase(iter->first);
+          }
+        auto fIter = mFluidMeshes.find(hash);
+        if(fIter != mFluidMeshes.end())
+          {
+            ChunkMesh *mesh = fIter->second;
+            mFluidMeshes.erase(hash);
+            mUnusedMeshes.push(mesh);
+          }
+      }
     mUnloadMeshes.clear();
   }
+
   
   // render all loaded chunks
   mBlockShader->bind();
@@ -195,21 +354,22 @@ void World::render(Matrix4 pvm)
     {
       mBlockShader->setUniform("fogStart", mFogStart);
       mBlockShader->setUniform("fogEnd", mFogEnd);
+      mBlockShader->setUniform("dirScale", mDirScale);
+      mChunkLineShader->setUniform("fogStart", mFogStart);
+      mChunkLineShader->setUniform("fogEnd", mFogEnd);
+      mChunkLineShader->setUniform("dirScale", mDirScale);
       changed = true;
       mRadChanged = false;
     }
   {
-    //LOGD("RENDERING");
+    std::lock_guard<std::mutex> lock(mRenderLock);
     for(auto &iter : mRenderMeshes)
       {
-        /*
-        if((!mClipFrustum && mFrustumRender[iter.first]) ||
-           (mClipFrustum && mFrustum &&
-            mFrustum->cubeInside(Hash::unhash(iter.first)*Chunk::size, Chunk::size, pvm)))
-          {
-            iter.second->render();
-          }
-        */
+        iter.second->render();
+      }
+    //LOGDC(COLOR_GREEN, "FLUID MESHES: %d", mFluidMeshes.size());
+    for(auto &iter : mFluidMeshes)
+      {
         iter.second->render();
       }
   }
@@ -231,23 +391,20 @@ void World::render(Matrix4 pvm)
         }
       
       mChunkLineMesh->render();
-      
       mChunkLineShader->release();
     }
 }
 
-void World::startLoading()
+
+int World::numMeshed()
 {
-  mMeshPool.start();
-  mLoader.start();
+  int num = 0;
+  std::lock_guard<std::mutex> lock(mMeshedLock);
+  for(auto &m : mMeshed)
+    { num++; }
+  return num;
 }
-void World::stopLoading()
-{
-  mLoader.stop();
-  mMeshPool.stop(false);
-  mMeshCv.notify_all();
-  mMeshPool.stop(true);
-}
+
 
 bool World::checkChunkLoad(const Point3i &cp)
 {
@@ -255,21 +412,22 @@ bool World::checkChunkLoad(const Point3i &cp)
   auto iter = mChunks.find(cHash);
   if(iter == mChunks.end())
     {
-      //LOGD("LOADING CHUNK");
-      //std::cout << "CP: " << cp << ", MIN: " << mMinChunk << ", MAX: " << mMaxChunk << "\n";
       Chunk *chunk = nullptr;
       if(mUnusedChunks.size() > 0)
         {
-          chunk = mUnusedChunks.pop();
+          chunk = mUnusedChunks.front();
+          mUnusedChunks.pop();
           chunk->setWorldPos(cp);
         }
       else
         { chunk = new Chunk(cp); }
 
-      //LOGD("LOADING --> %d %d %d", chunk->pos()[0], chunk->pos()[1], chunk->pos()[2]);
       mChunks.emplace(cHash, nullptr);
-      mNeighborsLoaded.emplace(cHash, 0);
-      mLoader.load(chunk);
+      std::unordered_map<blockSide_t, Chunk*> neighbors;
+      for(auto &side : gBlockSides)
+        { neighbors.emplace(side, nullptr); }
+      mNeighbors.emplace(cHash, neighbors);
+      mLoader->load(chunk);
       return true;
     }
     
@@ -278,351 +436,286 @@ bool World::checkChunkLoad(const Point3i &cp)
 
 void World::update()
 {
-  std::lock_guard<std::mutex> lock(mChunkLock);
-  //LOGD("CHUNK UPDATING");
+  std::vector<std::pair<int32_t, Chunk*>> unload;
   {
-    //std::lock_guard<std::mutex> lock(mRenderLock);
-    // see if any chunks within range need to be unloaded
-    //LOGD("CHECKING FOR UNLOAD CHUNKS");
-    std::vector<int32_t> unload;
+    std::lock_guard<std::mutex> lock(mChunkLock);
+    // find any chunks that are out of range to unload
     for(auto &iter : mChunks)
       {
-        if(iter.second)
-          {
-            if(!pointInRange(iter.second->pos(), mMinChunk, mMaxChunk))
-              {
-                unload.push_back(iter.first);
-              }
-          }
-      }
-    //LOGD("UNLOAD SIZE: %d", unload.size());
-    for(auto cHash : unload)
-      {
-        auto iter = mChunks.find(cHash);
-        if(iter != mChunks.end())
-          {
-            if(iter->second)
-              {
-                mUnusedChunks.push(iter->second);
-              }
-            mChunks.erase(cHash);
-            mNeighborsLoaded.erase(cHash);
-
-            {
-              std::lock_guard<std::mutex> lock(mMeshLock);
-              mMeshing.erase(cHash);
-            }
-            std::lock_guard<std::mutex> lock(mRenderLock);
-            mUnloadMeshes.insert(cHash);
-          }
+        if(!pointInRange(Hash::unhash(iter.first), mMinChunk, mMaxChunk))
+          { unload.push_back(iter); }
       }
   }
-  { // see if any chunks within range need to be loaded
-    
-    //std::lock_guard<std::mutex> lock(mRenderLock);
-    int num = 0;
-    num += loopFromCenter(mCenter, mLoadRadius, mCenterLoopCallback);
-    //for(int x = mMinChunk[0]; x < mMaxChunk[0]; x++)
-    //for(int y = mMinChunk[1]; y < mMaxChunk[1]; y++)
-    //  for(int z = mMinChunk[2]; z < mMaxChunk[2]; z++)
-    //    { checkChunkLoad(Point3i{x,y,z}); }
-  }
-
-  // see if any chunks have finished loading
   {
-    int num = 0;
-    while(mLoadQueue.size() > 0)
+    // unload the chunks
+    for(auto uIter : unload)
       {
-        Chunk *chunk = mLoadQueue.pop();
-        if(chunk && pointInRange(chunk->pos(), mMinChunk, mMaxChunk))
+        int32_t cHash = uIter.first;
+        Chunk *chunk = uIter.second;
+        if(chunk)
           {
-            int32_t cHash = Hash::hash(chunk->pos());
-            auto iter = mChunks.find(cHash);
-            if(iter != mChunks.end() && iter->second)
+            if(chunk->needsSave())
               {
-                mUnusedChunks.push(iter->second);
-                mNeighborsLoaded[cHash] = 0;
+                chunk->setNeedSave(false);
+                mLoader->save(chunk);
               }
-            //LOGD("  LOADED --> %d %d %d", chunk->pos()[0], chunk->pos()[1], chunk->pos()[2]);
-            //LOGD("LOAD CHUNK --> %d %d %d", chunk->pos()[0], chunk->pos()[1], chunk->pos()[2]);
-            // update mesh
-            if(chunk->isEmpty())
+            {
+              std::lock_guard<std::mutex> lock(mUnloadMeshLock);
+              mUnloadMeshes.insert(cHash);
+            }
+            for(auto sIter : mNeighbors[cHash])
+              { // remove this chunk from neighbors
+                blockSide_t side = sIter.first;
+                if(sIter.second)
+                  {
+                    sIter.second->setIncomplete(true);
+                    const int32_t nHash = Hash::hash(sIter.second->pos());
+                    mNeighbors[nHash][oppositeSide(side)] = nullptr;
+                  }
+              }
+            mNumLoaded--;
+            mUnusedChunks.push(chunk);
+          }
+        std::lock_guard<std::mutex> lock(mChunkLock);
+        mChunks.erase(cHash);
+        mNeighbors.erase(cHash);
+      }
+  }
+  
+  { // start loading chunks 
+    //std::lock_guard<std::mutex> lock(mChunkLock);
+    const std::vector<Point3i> &distPoints = getCenterDistPoints(mCenter, mLoadRadius);
+    if(mCenterDistIndex < distPoints.size())
+      {
+        for(int i = mCenterDistIndex; i < distPoints.size(); i++, mCenterDistIndex++)
+          {
+            Point3i p = distPoints[i] + mCenter;
+            const int cHash = Hash::hash(p);
+            auto iter = mChunks.find(cHash);
+            if(iter == mChunks.end())
               {
-                chunk->setDirty(false);
-                chunk->setIncomplete(false);
-                chunk->setPriority(false);
+                Chunk *chunk = nullptr;
+                if(mUnusedChunks.size() > 0)
+                  {
+                    chunk = mUnusedChunks.front();
+                    mUnusedChunks.pop();
+                    chunk->setWorldPos(p);
+                  }
+                else
+                  { chunk = new Chunk(p); }
+
+                mChunks.emplace(cHash, nullptr);
+                std::unordered_map<blockSide_t, Chunk*> neighbors;
+                for(auto &side : gBlockSides)
+                  { neighbors.emplace(side, nullptr); }
+                mNeighbors.emplace(cHash, neighbors);
+                
+                mLoader->load(chunk);
+                if(++mNumLoading >= mLoader->numThreads())
+                { break; }
+              }
+          }
+      }
+  }
+  
+  while(true) // activate chunks that are done loading
+    {
+      Chunk *chunk = nullptr;
+      {
+        std::lock_guard<std::mutex> lock(mLoadLock);
+        if(mLoadQueue.size() > 0)
+          {
+            chunk = mLoadQueue.front();
+            mLoadQueue.pop();
+          }
+        else
+          { break; }
+      }
+      if(chunk && pointInRange(chunk->pos(), mMinChunk, mMaxChunk))
+        {
+          const int32_t cHash = Hash::hash(chunk->pos());
+          {
+            std::lock_guard<std::mutex> lock(mChunkLock);
+            auto iter = mChunks.find(cHash);
+            if(iter != mChunks.end())
+              {
+                if(iter->second)
+                  {
+                    mUnusedChunks.push(iter->second);
+                  }
+                else
+                  { mNumLoaded++; }
+                  
+                iter->second = chunk;
+                  
+                // add neighbors
+                for(auto &side : gBlockSides)
+                  {
+                    const int32_t nHash = Hash::hash(chunk->pos() + sideDirection(side));
+                    auto ncIter = mChunks.find(nHash);
+                    if(ncIter != mChunks.end())
+                      {
+                        mNeighbors[cHash][side] = ncIter->second;
+                        mNeighbors[nHash][oppositeSide(side)] = chunk;
+                      }
+                  }
+                  
+                if(chunk->isEmpty())
+                  { // empty mesh
+                    chunk->setDirty(true);
+                    chunk->setIncomplete(false);
+                  }
+                else
+                  {
+                    chunk->setDirty(true);
+                    chunk->setIncomplete(true);
+                  }
               }
             else
-              {
-                //LOGD("CHUNK NOT EMPTY");
-                chunk->setDirty(true);
-                chunk->setIncomplete(true);
-                chunk->setPriority(false);
-              }
-            mChunks[cHash] = chunk;
+              { LOGW("LOADED CHUNK DESTROYED"); }
           }
-      }
-  }
-  {
-    // update meshes
-    int num = 0;
+        }
+    }
+  
+  { // update dirty meshes
+    std::lock_guard<std::mutex> lock(mChunkLock);
     for(auto &iter : mChunks)
       {
-        if(iter.second &&
-           ((!iter.second->isIncomplete() && iter.second->isDirty()) ||
-            (iter.second->isIncomplete() && (neighborsLoaded(iter.second) == gBlockSides.size()) )))
+        Chunk *chunk = iter.second;
+        const int32_t cHash = iter.first;
+        if(chunk && !chunk->isEmpty())
           {
-            if(neighborsLoaded(iter.second) == gBlockSides.size())
+            Point3i cp = chunk->pos();
+            bool nLoaded = neighborsLoaded(cHash, chunk);
+            if(chunk->isIncomplete() && nLoaded)
               {
-                //LOGD("SETTING COMPLETE");
-                iter.second->setIncomplete(false);
+                chunk->setIncomplete(false);
+                chunk->setDirty(true);
               }
-            {
-              std::lock_guard<std::mutex> lock(mMeshLock);
-
-              //LOGD("MESH QUEUING");
-              if(mMeshing.count(iter.first) == 0)
-                {
-                  //LOGD("SETTING COMPLETE");
-                  mMeshing.insert(iter.first);
-                  iter.second->setDirty(false);
-                  if(iter.second->isPriority())
-                    { mMeshQueue.push_front(iter); }
-                  else
-                    { mMeshQueue.push_back(iter); }
-                }
-            }
-            mMeshCv.notify_one();
-            //LOGD("DONE UPDATING MESH");
+            else if(!chunk->isIncomplete() && !nLoaded)
+              {
+                chunk->setIncomplete(true);
+                std::lock_guard<std::mutex> lock(mUnloadMeshLock);
+                mUnloadMeshes.insert(iter.first);
+              }
+            if(!chunk->isIncomplete())
+              { // neighbors loaded
+                if(chunk->isDirty())
+                  { // mesh needs updating
+                    std::unique_lock<std::mutex> lock(mMeshLock);
+                    chunk->setDirty(false);
+                    if(mMeshing.count(cHash) == 0)
+                      {
+                        meshChunk(chunk);
+                        mMeshing.insert(cHash);
+                      }
+                    lock.unlock();
+                    mMeshCv.notify_one();
+                  }
+              }
           }
       }
   }
-  // TODO: save chunk
+
+
+  
+  { // save any chunks that have been modified
+    std::lock_guard<std::mutex> lock(mChunkLock);
+    for(auto &iter : mChunks)
+      {
+        if(iter.second && iter.second->needsSave())
+          {
+            //LOGD("SAVING");
+            mLoader->save(iter.second);
+            iter.second->setNeedSave(false);
+          }
+      }
+  }
 }
 
-
-std::vector<Vector3i> adjacent
-  { Vector3i{1,0,0}, Vector3i{0,1,0}, Vector3i{-1,0,0}, Vector3i{0,-1,0}, Vector3i{0,0,-1}, };
+void World::meshChunk(Chunk *chunk)
+{
+  // keep sorted from farthest to nearest.
+  const Point3i cPos = chunk->pos();
+  const int dist = (cPos - mCenter).length();
+  for(int i = mMeshQueue.size()-1; i >= 0; i--)
+    {
+      if(dist > (mMeshQueue[i]->pos() - mCenter).length())
+        {
+          mMeshQueue.insert(mMeshQueue.begin() + i, chunk);
+          return;
+        }
+    }
+  mMeshQueue.insert(mMeshQueue.begin() + 0, chunk);
+}
 
 void World::step()
 {
   if(!mSimFluids)
     { return; }
-#define FLOW 0.1
-#define ZFLOW 1.0
 
-  std::unordered_map<int32_t, Chunk*> chunks;
-  std::unordered_map<int32_t, bool> updates;
-  {
-    std::lock_guard<std::mutex> lock(mChunkLock);
-    chunks = mChunks;
-    for(auto &c : chunks)
-    { updates.emplace(c.first, false); }
-  }
-  FluidData *newFluid = new FluidData(0.0f, 0.0f);
-  for(auto &iter : chunks)
-    {
-      Chunk *chunk = iter.second;
-      if(chunk)
-        {
-          bool chunkChanged = false;
-          auto fluids = chunk->getFluids();
-          for(auto &fIter : fluids)
-            {
-              FluidData *fData = fIter.second;
-              if(fData->gone())
-                { continue; }
-              int bi = fIter.first;
-              Point3i wp = chunk->pos()*Chunk::size + Chunk::indexer().unindex(bi);
-              Block *b = chunk->at(bi);
-              newFluid->fluidEvap = fData->fluidEvap;
-
-              // first check block underneath
-              Point3i np{wp[0], wp[1], wp[2]-1};
-              Chunk *nc = getChunk(np);
-              if(nc)
-                {
-                  Block *nb = at(np);
-                  bool fluidFull = false;
-                  if(nb->type == block_t::NONE)
-                    {
-                      newFluid->fluidLevel = fData->fluidLevel;
-                      setBlock(np, b->type, newFluid);
-                      setBlock(wp, block_t::NONE, nullptr);
-                      updates[iter.first] = true;
-                      updates[Hash::hash(chunkPos(np))] = true;
-                    }
-                  else if(isFluidBlock(nb->type))
-                    { // combine fluids if possible
-                      BlockData *nData = getData(np);
-                      float overflow = reinterpret_cast<FluidData*>(nData)->adjustLevel(fData->fluidLevel);
-                      fData->fluidLevel = overflow;
-                      if(overflow > 0.0f)
-                        { fluidFull = true; }
-                      updates[iter.first] = true;
-                      updates[Hash::hash(chunkPos(np))] = true;
-                    }
-
-                  if(isSimpleBlock(nb->type) || fluidFull)
-                    {
-                      Point3i pPX = wp + Vector3i{1,0,0};
-                      Chunk *cPX = getChunk(pPX);
-                      block_t tPX = getType(pPX);
-                      BlockData *bbPX = getData(pPX);
-                      FluidData *bPX = (bbPX ? reinterpret_cast<FluidData*>(bbPX) : nullptr);
-                      float pressurePX = (bPX ? fData->fluidLevel - bPX->fluidLevel : (tPX == block_t::NONE ?
-                                                                                       fData->fluidLevel : 0));
-
-                      Point3i pNX = wp + Vector3i{-1,0,0};
-                      Chunk *cNX = getChunk(pNX);
-                      block_t tNX = getType(pNX);
-                      FluidData *bNX = reinterpret_cast<FluidData*>(getData(pNX));
-                      float pressureNX = (bNX ? fData->fluidLevel - bNX->fluidLevel : (tNX == block_t::NONE ?
-                                                                                       fData->fluidLevel : 0));
-
-                      Point3i pPY = wp + Vector3i{0,1,0};
-                      Chunk *cPY = getChunk(pPY);
-                      block_t tPY = getType(pPY);
-                      FluidData *bPY = reinterpret_cast<FluidData*>(getData(pPY));
-                      float pressurePY = (bPY ? fData->fluidLevel - bPY->fluidLevel : (tPY == block_t::NONE ?
-                                                                                       fData->fluidLevel : 0));
-              
-                      Point3i pNY = wp + Vector3i{0,-1,0};
-                      Chunk *cNY = getChunk(pNY);
-                      block_t tNY = getType(pNY);
-                      FluidData *bNY = reinterpret_cast<FluidData*>(getData(pNY));
-                      float pressureNY = (bNY ? fData->fluidLevel - bNY->fluidLevel : (tNY == block_t::NONE ?
-                                                                                       fData->fluidLevel : 0));
-              
-                      float flowFull = 0.25f;
-                      float flowEmpty = 0.4f;
-                      if(pressurePX > 0)
-                        {
-                          if(tPX == block_t::NONE)
-                            {
-                              newFluid->fluidLevel = 0.0f;
-                              cPX->setBlock(Chunk::blockPos(pPX), b->type, newFluid);
-                              bPX = reinterpret_cast<FluidData*>(getData(pPX));
-                            }
-                          float flow = lerp(flowEmpty, flowFull, 1.0f - pressurePX);
-                          bPX->adjustLevel(pressurePX * flow);
-                          fData->adjustLevel(-pressurePX * flow);
-                          updates[iter.first] = true;
-                          updates[Hash::hash(chunkPos(pPX))] = true;
-                        }
-                      if(pressureNX > 0)
-                        {
-                          if(tNX == block_t::NONE)
-                            {
-                              newFluid->fluidLevel = 0.0f;
-                              cNX->setBlock(Chunk::blockPos(pNX), b->type, newFluid);
-                              bNX = reinterpret_cast<FluidData*>(getData(pNX));
-                            }
-                          float flow = lerp(flowEmpty, flowFull, 1.0f - pressureNX);
-                          bNX->adjustLevel(pressureNX * flow);
-                          fData->adjustLevel(-pressureNX * flow);
-                          updates[iter.first] = true;
-                          updates[Hash::hash(chunkPos(pNX))] = true;
-                        }
-                      if(pressurePY > 0)
-                        {
-                          if(tPY == block_t::NONE)
-                            {
-                              newFluid->fluidLevel = 0.0f;
-                              cPY->setBlock(Chunk::blockPos(pPY), b->type, newFluid);
-                              bPY = reinterpret_cast<FluidData*>(getData(pPY));
-                            }
-                          float flow = lerp(flowEmpty, flowFull, 1.0f - pressurePY);
-                          bPY->adjustLevel(pressurePY * flow);
-                          fData->adjustLevel(-pressurePY * flow);
-                          updates[iter.first] = true;
-                          updates[Hash::hash(chunkPos(pPY))] = true;
-                        }
-                      if(pressureNY > 0)
-                        {
-                          if(tNY == block_t::NONE)
-                            {
-                              newFluid->fluidLevel = 0.0f;
-                              cNY->setBlock(Chunk::blockPos(pNY), b->type, newFluid);
-                              bNY = reinterpret_cast<FluidData*>(getData(pNY));
-                            }
-                          float flow = lerp(flowEmpty, flowFull, 1.0f - pressureNY);
-                          bNY->adjustLevel(pressureNY * flow);
-                          fData->adjustLevel(-pressureNY * flow);
-                          updates[iter.first] = true;
-                          updates[Hash::hash(chunkPos(pNY))] = true;
-                        }
-                    }
-                }
-            }
-
-          if(chunk->step(mEvapFluids))
-            {
-              updates[iter.first] = true;
-            }          
-        }
-    }
-
-
-  delete newFluid;
+  std::unordered_map<int32_t, bool> updates = mFluids.step(mEvapFluids);
+  
   std::lock_guard<std::mutex> lock(mChunkLock);
   for(auto &c : updates)
     {
       if(c.second)
-        { mChunks[c.first]->setDirty(true); }
-    }
-  
-}
-
-void World::updateNeighbors(Chunk *chunk)
-{
-  Point3i cp = chunk->pos();
-  int32_t cHash = Hash::hash(cp);
-  
-  for(auto side : gBlockSides)
-    {
-      int nHash = Hash::hash(cp + sideDirection(side));
-      auto iter = mChunks.find(nHash);
-      if(iter != mChunks.end() && iter->second)
         {
-          iter->second->setDirty(true);
+          auto iter = mChunks.find(c.first);
+          if(iter != mChunks.end() && iter->second)
+            { iter->second->setDirty(true); }
         }
     }
 }
-int World::neighborsLoaded(Chunk *chunk)
+
+blockSide_t World::getEdges(int32_t hash)
 {
-  Point3i cp = chunk->pos();
-  int32_t cHash = Hash::hash(cp);
-  auto nIter = mNeighborsLoaded.find(cHash);
-  if(nIter != mNeighborsLoaded.end())
+  Point3i cp = Hash::unhash(hash);
+  blockSide_t edges = ((cp[0] == mMinChunk[0] ? blockSide_t::NX : blockSide_t::NONE) |
+                       (cp[1] == mMinChunk[1] ? blockSide_t::NY : blockSide_t::NONE) |
+                       (cp[2] == mMinChunk[2] ? blockSide_t::NZ : blockSide_t::NONE) |
+                       (cp[0] == mMaxChunk[0] ? blockSide_t::PX : blockSide_t::NONE) |
+                       (cp[1] == mMaxChunk[1] ? blockSide_t::PY : blockSide_t::NONE) |
+                       (cp[2] == mMaxChunk[2] ? blockSide_t::PZ : blockSide_t::NONE) );
+  return edges;
+}
+
+bool World::neighborsLoaded(int32_t hash, Chunk *chunk)
+{
+  blockSide_t edgeSides = getEdges(hash);
+  auto nIter = mNeighbors.find(hash);
+  if(nIter != mNeighbors.end())
     {
       int loaded = 0;
       for(auto side : gBlockSides)
         {
-          Point3i np = cp + sideDirection(side);
-          auto iter = mChunks.find(Hash::hash(np));
-          if((iter != mChunks.end() && iter->second))
+          if(((edgeSides & side) != blockSide_t::NONE) || nIter->second[side])
+            { loaded++; }
+          else
             {
-              loaded++;
+              auto cIter = mChunks.find(Hash::hash(chunk->pos() + sideDirection(side)));
+              if(cIter != mChunks.end())
+                { nIter->second[side] = cIter->second; }
+              if(nIter->second[side])
+                { loaded++; }
             }
         }
-      mNeighborsLoaded[cHash] = loaded;
-      return loaded;
+      return loaded == gBlockSides.size();
     }
   else
-    { return 0; }
+    { return false; }
 }
 
 void World::updateAdjacent(const Point3i &wp)
 {
   const Point3i cp = chunkPos(wp);
-  const Point3i cp2 = cp + sideDirection(Chunk::chunkEdge(Chunk::blockPos(wp)));
-  const Point3i minP{std::min(cp[0], cp2[0]),
-                     std::min(cp[1], cp2[1]),
-                     std::min(cp[2], cp2[2]) };
-  const Point3i maxP{std::max(cp[0], cp2[0]),
-                     std::max(cp[1], cp2[1]),
-                     std::max(cp[2], cp2[2]) };
+  const Point3i np = cp + sideDirection(Chunk::chunkEdge(Chunk::blockPos(wp)));
+  const Point3i minP{std::min(cp[0], np[0]),
+                     std::min(cp[1], np[1]),
+                     std::min(cp[2], np[2]) };
+  const Point3i maxP{std::max(cp[0], np[0]),
+                     std::max(cp[1], np[1]),
+                     std::max(cp[2], np[2]) };
   Point3i p;
   for(p[0] = minP[0]; p[0] <= maxP[0]; p[0]++)
     for(p[1] = minP[1]; p[1] <= maxP[1]; p[1]++)
@@ -630,27 +723,19 @@ void World::updateAdjacent(const Point3i &wp)
         {
           auto iter = mChunks.find(Hash::hash(p));
           if(iter != mChunks.end() && iter->second)
-            { iter->second->setDirty(true); }
+            {
+              iter->second->setDirty(true);
+            }
         }
 }
 
-Block* World::at(const Point3i &worldPos)
+block_t* World::at(const Point3i &worldPos)
 {
   std::lock_guard<std::mutex> lock(mChunkLock);
   Point3i cp = chunkPos(worldPos);
   auto iter = mChunks.find(Hash::hash(cp));
   if(iter != mChunks.end() && iter->second)
     { return iter->second->at(Chunk::blockPos(worldPos)); }
-  else
-    { return nullptr; }
-}
-BlockData* World::getData(const Point3i &worldPos)
-{
-  std::lock_guard<std::mutex> lock(mChunkLock);
-  Point3i cp = chunkPos(worldPos);
-  auto iter = mChunks.find(Hash::hash(cp));
-  if(iter != mChunks.end() && iter->second)
-    { return iter->second->getData(Chunk::blockPos(worldPos)); }
   else
     { return nullptr; }
 }
@@ -686,11 +771,30 @@ bool World::setBlock(const Point3i &worldPos, block_t type, BlockData *data)
     if(iter != mChunks.end())
       { chunk = iter->second; }
   }
-  if(chunk && chunk->setBlock(Chunk::blockPos(worldPos), type, data))
+  if(chunk)
     {
-      updateAdjacent(worldPos);
-      chunk->setPriority(true);
-      return true;
+      if((type == block_t::NONE || isSimpleBlock(type)) &&
+         chunk->setBlock(Chunk::blockPos(worldPos), type) )
+        {
+          updateAdjacent(worldPos);
+          chunk->setNeedSave(true);
+          chunk->setPriority(true);
+          return true;
+        }
+      else if(isFluidBlock(type) && data)
+        {
+          if(mFluids.set(worldPos, reinterpret_cast<Fluid*>(data)))
+            {
+              updateAdjacent(worldPos);
+              chunk->setNeedSave(true);
+              chunk->setPriority(true);
+              return true;
+            }
+        }
+      else
+        {
+          LOGDC(COLOR_RED, "No block set!");
+        }
     }
   return false;
 }
@@ -703,7 +807,8 @@ block_t World::getBlock(const Point3i &wp, std::unordered_map<int32_t, Chunk*> &
   else
     { return block_t::NONE; }
 }
-Block* World::atBlock(const Point3i &wp, std::unordered_map<int32_t, Chunk*> &neighbors)
+
+block_t* World::atBlock(const Point3i &wp, std::unordered_map<int32_t, Chunk*> &neighbors)
 {
   auto iter = neighbors.find(Hash::hash(chunkPos(wp)));
   if(iter != neighbors.end() && iter->second)
@@ -723,19 +828,26 @@ inline int World::getAO(int e1, int e2, int c)
 
 void World::meshWorker(int tid)
 {
+  if(!mMeshPool.running())
+    {
+      return;
+    }
   std::unique_lock<std::mutex> lock(mMeshLock);
   mMeshCv.wait(lock, [this]{ return !mMeshPool.running() || mMeshQueue.size() > 0; });
   if(!mMeshPool.running())
-    { return; }
+    {
+      return;
+    }
   
-  auto next = mMeshQueue.front();
-  mMeshQueue.pop_front();
-  mMeshing.erase(next.first);
-  Chunk *chunk = next.second;
-  mMeshLock.unlock();
-  
-  if(chunk)
-    { updateChunkMesh(chunk, true); }
+  Chunk *next = mMeshQueue.back();
+  mMeshQueue.pop_back();
+  int32_t cHash = Hash::hash(next->pos());
+  if(mMeshing.count(cHash) > 0)
+    {
+      mMeshing.erase(cHash);
+      mMeshLock.unlock();
+      updateChunkMesh(next);
+    }
 }
 
 int World::getLighting(const Point3i &bp, const Point3f &vp, blockSide_t side,
@@ -745,7 +857,7 @@ int World::getLighting(const Point3i &bp, const Point3f &vp, blockSide_t side,
   const int dim1 = (dim+1) % 3;  // dimension of edge 1
   const int dim2 = (dim+2) % 3;  // dimension of edge 2
 
-  const int e1 = bp[dim1] + (int)vp[dim1] * 2 - 1; // 
+  const int e1 = bp[dim1] + (int)vp[dim1] * 2 - 1;
   const int e2 = bp[dim2] + (int)vp[dim2] * 2 - 1;
   
   Point3i bi;
@@ -753,18 +865,14 @@ int World::getLighting(const Point3i &bp, const Point3f &vp, blockSide_t side,
   bi[dim1] = e1;
   bi[dim2] = e2;
 
-  int lc;
-  int le1;
-  int le2;
-
-  lc = (isSimpleBlock(getBlock(bi, neighbors)) ? 1 : 0);
+  int lc = (isSimpleBlock(getBlock(bi, neighbors)) ? 1 : 0);
   
   bi[dim1] = bp[dim1];
-  le1 = (isSimpleBlock(getBlock(bi, neighbors)) ? 1 : 0);
+  int le1 = (isSimpleBlock(getBlock(bi, neighbors)) ? 1 : 0);
   
   bi[dim1] = e1;
   bi[dim2] = bp[dim2];
-  le2 = (isSimpleBlock(getBlock(bi, neighbors)) ? 1 : 0);
+  int le2 = (isSimpleBlock(getBlock(bi, neighbors)) ? 1 : 0);
   
   return 3 - getAO(le1, le2, lc);
 }
@@ -775,76 +883,77 @@ static const std::array<unsigned int, 6> reverseIndices = { 0, 1, 3, 2, 1, 0 };
 static const std::array<unsigned int, 6> flippedIndices = { 0, 3, 2, 1, 2, 3 };
 static std::unordered_map<blockSide_t, std::array<cSimpleVertex, 4>> faceVertices
   { // CUBE FACE VERTICES
-    {blockSide_t::PX,
-	{cSimpleVertex(Point3f{1, 0, 0}, Vector3f{1, 0, 0}, Vector2f{0.0f, 0.0f} ),
-	   cSimpleVertex(Point3f{1, 1, 1}, Vector3f{1, 0, 0}, Vector2f{1.0f, 1.0f} ),
-	   cSimpleVertex(Point3f{1, 0, 1}, Vector3f{1, 0, 0}, Vector2f{0.0f, 1.0f} ),
-	   cSimpleVertex(Point3f{1, 1, 0}, Vector3f{1, 0, 0}, Vector2f{1.0f, 0.0f} ) } },
-      {blockSide_t::PY,
-	  {cSimpleVertex(Point3f{0, 1, 0}, Vector3f{0, 1, 0}, Vector2f{0.0f, 0.0f} ),
-	     cSimpleVertex(Point3f{1, 1, 1}, Vector3f{0, 1, 0}, Vector2f{1.0f, 1.0f} ),
-	     cSimpleVertex(Point3f{1, 1, 0}, Vector3f{0, 1, 0}, Vector2f{0.0f, 1.0f} ),
-	     cSimpleVertex(Point3f{0, 1, 1}, Vector3f{0, 1, 0}, Vector2f{1.0f, 0.0f} ) } },
-	{blockSide_t::PZ,
-	    {cSimpleVertex(Point3f{0, 0, 1}, Vector3f{0, 0, 1}, Vector2f{0.0f, 0.0f} ),
-	       cSimpleVertex(Point3f{1, 1, 1}, Vector3f{0, 0, 1}, Vector2f{1.0f, 1.0f} ),
-	       cSimpleVertex(Point3f{0, 1, 1}, Vector3f{0, 0, 1}, Vector2f{0.0f, 1.0f} ),
-	       cSimpleVertex(Point3f{1, 0, 1}, Vector3f{0, 0, 1}, Vector2f{1.0f, 0.0f} ) } },
-	  {blockSide_t::NX,
-	      {cSimpleVertex(Point3f{0, 0, 0}, Vector3f{-1, 0, 0}, Vector2f{0.0f, 0.0f} ),
-		 cSimpleVertex(Point3f{0, 1, 1}, Vector3f{-1, 0, 0}, Vector2f{1.0f, 1.0f} ),
-		 cSimpleVertex(Point3f{0, 1, 0}, Vector3f{-1, 0, 0}, Vector2f{0.0f, 1.0f} ),
-		 cSimpleVertex(Point3f{0, 0, 1}, Vector3f{-1, 0, 0}, Vector2f{1.0f, 0.0f} ) } },
-	    {blockSide_t::NY,
-		{cSimpleVertex(Point3f{0, 0, 0}, Vector3f{0, -1, 0}, Vector2f{0.0f, 0.0f} ),
-		   cSimpleVertex(Point3f{1, 0, 1}, Vector3f{0, -1, 0}, Vector2f{1.0f, 1.0f} ),
-		   cSimpleVertex(Point3f{0, 0, 1}, Vector3f{0, -1, 0}, Vector2f{0.0f, 1.0f} ),
-		   cSimpleVertex(Point3f{1, 0, 0}, Vector3f{0, -1, 0}, Vector2f{1.0f, 0.0f} ) } },
-	      {blockSide_t::NZ,
-		  {cSimpleVertex(Point3f{0, 0, 0}, Vector3f{0, 0, -1}, Vector2f{0.0f, 0.0f} ),
-		     cSimpleVertex(Point3f{1, 1, 0}, Vector3f{0, 0, -1}, Vector2f{1.0f, 1.0f} ),
-                   cSimpleVertex(Point3f{1, 0, 0}, Vector3f{0, 0, -1}, Vector2f{0.0f, 1.0f} ),
-                   cSimpleVertex(Point3f{0, 1, 0}, Vector3f{0, 0, -1}, Vector2f{1.0f, 0.0f} ) } } };
+   {blockSide_t::PX,
+    {cSimpleVertex(Point3f{1, 0, 0}, Vector3f{1, 0, 0}, Vector2f{0.0f, 0.0f} ),
+     cSimpleVertex(Point3f{1, 1, 1}, Vector3f{1, 0, 0}, Vector2f{1.0f, 1.0f} ),
+     cSimpleVertex(Point3f{1, 0, 1}, Vector3f{1, 0, 0}, Vector2f{0.0f, 1.0f} ),
+     cSimpleVertex(Point3f{1, 1, 0}, Vector3f{1, 0, 0}, Vector2f{1.0f, 0.0f} ) } },
+   {blockSide_t::PY,
+    {cSimpleVertex(Point3f{0, 1, 0}, Vector3f{0, 1, 0}, Vector2f{0.0f, 0.0f} ),
+     cSimpleVertex(Point3f{1, 1, 1}, Vector3f{0, 1, 0}, Vector2f{1.0f, 1.0f} ),
+     cSimpleVertex(Point3f{1, 1, 0}, Vector3f{0, 1, 0}, Vector2f{0.0f, 1.0f} ),
+     cSimpleVertex(Point3f{0, 1, 1}, Vector3f{0, 1, 0}, Vector2f{1.0f, 0.0f} ) } },
+   {blockSide_t::PZ,
+    {cSimpleVertex(Point3f{0, 0, 1}, Vector3f{0, 0, 1}, Vector2f{0.0f, 0.0f} ),
+     cSimpleVertex(Point3f{1, 1, 1}, Vector3f{0, 0, 1}, Vector2f{1.0f, 1.0f} ),
+     cSimpleVertex(Point3f{0, 1, 1}, Vector3f{0, 0, 1}, Vector2f{0.0f, 1.0f} ),
+     cSimpleVertex(Point3f{1, 0, 1}, Vector3f{0, 0, 1}, Vector2f{1.0f, 0.0f} ) } },
+   {blockSide_t::NX,
+    {cSimpleVertex(Point3f{0, 0, 0}, Vector3f{-1, 0, 0}, Vector2f{0.0f, 0.0f} ),
+     cSimpleVertex(Point3f{0, 1, 1}, Vector3f{-1, 0, 0}, Vector2f{1.0f, 1.0f} ),
+     cSimpleVertex(Point3f{0, 1, 0}, Vector3f{-1, 0, 0}, Vector2f{0.0f, 1.0f} ),
+     cSimpleVertex(Point3f{0, 0, 1}, Vector3f{-1, 0, 0}, Vector2f{1.0f, 0.0f} ) } },
+   {blockSide_t::NY,
+    {cSimpleVertex(Point3f{0, 0, 0}, Vector3f{0, -1, 0}, Vector2f{0.0f, 0.0f} ),
+     cSimpleVertex(Point3f{1, 0, 1}, Vector3f{0, -1, 0}, Vector2f{1.0f, 1.0f} ),
+     cSimpleVertex(Point3f{0, 0, 1}, Vector3f{0, -1, 0}, Vector2f{0.0f, 1.0f} ),
+     cSimpleVertex(Point3f{1, 0, 0}, Vector3f{0, -1, 0}, Vector2f{1.0f, 0.0f} ) } },
+   {blockSide_t::NZ,
+    {cSimpleVertex(Point3f{0, 0, 0}, Vector3f{0, 0, -1}, Vector2f{0.0f, 0.0f} ),
+     cSimpleVertex(Point3f{1, 1, 0}, Vector3f{0, 0, -1}, Vector2f{1.0f, 1.0f} ),
+     cSimpleVertex(Point3f{1, 0, 0}, Vector3f{0, 0, -1}, Vector2f{0.0f, 1.0f} ),
+     cSimpleVertex(Point3f{0, 1, 0}, Vector3f{0, 0, -1}, Vector2f{1.0f, 0.0f} ) } } };
 
-void addChunkFace(MeshData &data, const Point3i &cp)
+void addChunkFace(MeshData &data, const Point3i &cp, bool meshed)
 {
-  int nVert = data.vertices.size();
-  data.vertices.emplace_back((cp + Point3i{0,0,0})*Chunk::size, Point3i{0,0,0}, Point2i{0,0});
-  data.vertices.emplace_back((cp + Point3i{0,1,0})*Chunk::size, Point3i{0,0,0}, Point2i{0,0});
-  data.vertices.emplace_back((cp + Point3i{1,1,0})*Chunk::size, Point3i{0,0,0}, Point2i{0,0});
-  data.vertices.emplace_back((cp + Point3i{1,0,0})*Chunk::size, Point3i{0,0,0}, Point2i{0,0});
+  Vector3f color = (meshed ? Vector3f{0,0,0} : Vector3f{1,0,0});
+  int nVert = data.vertices().size();
+  data.vertices().emplace_back((cp + Point3i{0,0,0})*Chunk::size, color, Point2i{0,0});
+  data.vertices().emplace_back((cp + Point3i{0,1,0})*Chunk::size, color, Point2i{0,0});
+  data.vertices().emplace_back((cp + Point3i{1,1,0})*Chunk::size, color, Point2i{0,0});
+  data.vertices().emplace_back((cp + Point3i{1,0,0})*Chunk::size, color, Point2i{0,0});
   
-  data.vertices.emplace_back((cp + Point3i{0,0,1})*Chunk::size, Point3i{0,0,0}, Point2i{0,0});
-  data.vertices.emplace_back((cp + Point3i{0,1,1})*Chunk::size, Point3i{0,0,0}, Point2i{0,0});
-  data.vertices.emplace_back((cp + Point3i{1,1,1})*Chunk::size, Point3i{0,0,0}, Point2i{0,0});
-  data.vertices.emplace_back((cp + Point3i{1,0,1})*Chunk::size, Point3i{0,0,0}, Point2i{0,0});
+  data.vertices().emplace_back((cp + Point3i{0,0,1})*Chunk::size, color, Point2i{0,0});
+  data.vertices().emplace_back((cp + Point3i{0,1,1})*Chunk::size, color, Point2i{0,0});
+  data.vertices().emplace_back((cp + Point3i{1,1,1})*Chunk::size, color, Point2i{0,0});
+  data.vertices().emplace_back((cp + Point3i{1,0,1})*Chunk::size, color, Point2i{0,0});
 
-  data.indices.push_back(nVert + 0);
-  data.indices.push_back(nVert + 1);
-  data.indices.push_back(nVert + 1);
-  data.indices.push_back(nVert + 2);
-  data.indices.push_back(nVert + 2);
-  data.indices.push_back(nVert + 3);
-  data.indices.push_back(nVert + 3);
-  data.indices.push_back(nVert + 0);
+  data.indices().push_back(nVert + 0);
+  data.indices().push_back(nVert + 1);
+  data.indices().push_back(nVert + 1);
+  data.indices().push_back(nVert + 2);
+  data.indices().push_back(nVert + 2);
+  data.indices().push_back(nVert + 3);
+  data.indices().push_back(nVert + 3);
+  data.indices().push_back(nVert + 0);
 
-  data.indices.push_back(nVert + 4);
-  data.indices.push_back(nVert + 5);
-  data.indices.push_back(nVert + 5);
-  data.indices.push_back(nVert + 6);
-  data.indices.push_back(nVert + 6);
-  data.indices.push_back(nVert + 7);
-  data.indices.push_back(nVert + 7);
-  data.indices.push_back(nVert + 4);
+  data.indices().push_back(nVert + 4);
+  data.indices().push_back(nVert + 5);
+  data.indices().push_back(nVert + 5);
+  data.indices().push_back(nVert + 6);
+  data.indices().push_back(nVert + 6);
+  data.indices().push_back(nVert + 7);
+  data.indices().push_back(nVert + 7);
+  data.indices().push_back(nVert + 4);
 
-  data.indices.push_back(nVert + 0);
-  data.indices.push_back(nVert + 4);
-  data.indices.push_back(nVert + 1);
-  data.indices.push_back(nVert + 5);
-  data.indices.push_back(nVert + 2);
-  data.indices.push_back(nVert + 6);
-  data.indices.push_back(nVert + 3);
-  data.indices.push_back(nVert + 7);
+  data.indices().push_back(nVert + 0);
+  data.indices().push_back(nVert + 4);
+  data.indices().push_back(nVert + 1);
+  data.indices().push_back(nVert + 5);
+  data.indices().push_back(nVert + 2);
+  data.indices().push_back(nVert + 6);
+  data.indices().push_back(nVert + 3);
+  data.indices().push_back(nVert + 7);
   
 }
 
@@ -853,8 +962,6 @@ MeshData World::makeChunkLineMesh()
   MeshData data;
   std::unordered_set<int32_t> mDone;
 
-  std::lock_guard<std::mutex> lock(mRenderLock);
-  //LOGD("CHUNK LINE MESH");
   int maxR = std::max(mLoadRadius[0], std::max(mLoadRadius[1], mLoadRadius[2]));
   const Point3i offset = mMaxChunk-1;
 
@@ -863,153 +970,149 @@ MeshData World::makeChunkLineMesh()
     for(cp[1] = 0; cp[1] < mChunkDim[1]; cp[1]++)
       for(cp[2] = 0; cp[2] < mChunkDim[2]; cp[2]++)
         {
-          auto iter = mRenderMeshes.find(Hash::hash(mMinChunk+cp));
-          if(iter != mRenderMeshes.end() && iter->second)
-            { addChunkFace(data, cp); }
+          int32_t cHash = Hash::hash(mMinChunk+cp);
+          bool meshed;
+          {
+            std::lock_guard<std::mutex> lock(mRenderLock);
+            auto rIter = mRenderMeshes.find(cHash);
+            meshed = (rIter != mRenderMeshes.end());
+          }
+          std::lock_guard<std::mutex> lock(mChunkLock);
+          auto cIter = mChunks.find(cHash);
+          if(cIter != mChunks.end() && cIter->second)
+            { addChunkFace(data, cp, meshed); }
         }
-  //LOGD("DONE CHUNK LINE MESH");
   return data;
 }
-void World::updateChunkMesh(Chunk *chunk, bool priority)
+void World::updateChunkMesh(Chunk *chunk)
 {
+  static const std::array<blockSide_t, 6> sides {{ blockSide_t::PX, blockSide_t::PY,
+                                                   blockSide_t::PZ, blockSide_t::NX,
+                                                   blockSide_t::NY, blockSide_t::NZ }};
+  static const std::array<Point3i, 6> sideDirections {{ Point3i{1,0,0}, Point3i{0,1,0},
+                                                        Point3i{0,0,1}, Point3i{-1,0,0},
+                                                        Point3i{0,-1,0}, Point3i{0,0,-1} }};
+  if(chunk->isEmpty())
+    { return; }
+  
   const Point3i cPos = chunk->pos();
   const int32_t cHash = Hash::hash(cPos);
-
-  MeshedChunk *mc = new MeshedChunk({cHash, MeshData()});
-
-  static const std::array<blockSide_t, 6> sides {{ blockSide_t::PX,
-                                                   blockSide_t::PY,
-                                                   blockSide_t::PZ,
-                                                   blockSide_t::NX,
-                                                   blockSide_t::NY,
-                                                   blockSide_t::NZ }};
-  static const std::array<Point3i, 6> sideDirections {{ Point3i{1,0,0},
-                                                        Point3i{0,1,0},
-                                                        Point3i{0,0,1},
-                                                        Point3i{-1,0,0},
-                                                        Point3i{0,-1,0},
-                                                        Point3i{0,0,-1} }};
+  
   // get neighbors
+  std::unordered_map<blockSide_t, Chunk*> sNeighbors;
+  {
+    sNeighbors = mNeighbors[cHash];
+  }
   std::unordered_map<int32_t, Chunk*> neighbors;
   {
-    std::lock_guard<std::mutex> lock(mChunkLock);
-    Point3i np;
-    for(np[0] = cPos[0]-1; np[0] <= cPos[0]+1; np[0]++)
-      for(np[1] = cPos[1]-1; np[1] <= cPos[1]+1; np[1]++)
-        for(np[2] = cPos[2]-1; np[2] <= cPos[2]+1; np[2]++)
+    for(auto &iter : mNeighbors[cHash])
+      {
+        if(!iter.second)
           {
-            int cHash = Hash::hash(np);
-            auto iter = mChunks.find(cHash);
-            if(iter != mChunks.end() && iter->second)
-              { neighbors.emplace(cHash, iter->second); }
+            auto cIter = mChunks.find(Hash::hash(cPos + sideDirection(iter.first)));
+            if(cIter != mChunks.end())
+              neighbors[Hash::hash(cPos + sideDirection(iter.first))] = cIter->second;
           }
+        else
+          {
+            neighbors[Hash::hash(cPos + sideDirection(iter.first))] = iter.second;
+          }
+      }
+    neighbors[cHash] = chunk;
   }
   
-  // iterate over the chunk's blocks and compile all face vertices.
-  Point3i bp;
-  //const Point3i minP = cPos `+ Chunk::blockPos(cPos*Chunk::size);
-  const Point3i minP{cPos[0]*Chunk::sizeX,
-                     cPos[1]*Chunk::sizeY,
-                     cPos[2]*Chunk::sizeZ};
-  const Point3i maxP = minP + Chunk::size;
-  for(bp[0] = 0; bp[0] < Chunk::size[0]; bp[0]++)
-    for(bp[1] = 0; bp[1] < Chunk::size[1]; bp[1]++)
-      for(bp[2] = 0; bp[2] < Chunk::size[2]; bp[2]++)
-	{
-	  CompleteBlock block = {chunk->getType(bp), chunk->getData(bp)};
+  OuterShell *bounds = nullptr;
+  auto iter = mChunkBoundaries.find(cHash);
+  if(iter == mChunkBoundaries.end())
+    {
+      bounds = new OuterShell();
+      mChunkBoundaries.emplace(cHash, bounds);
+    }
+  else
+    { bounds = iter->second; }
+
+  bounds->lock();
+  bool empty = !bounds->calcShell(chunk, mNeighbors[cHash]);
+  bounds->unlock();
+  
+  bool hasFluids = mFluids.setChunkBoundary(cHash, bounds);
+  
+  if(!empty)
+    {
+      MeshedChunk *mc = nullptr;
+      {
+        std::lock_guard<std::mutex> lock(mUnusedMCLock);
+        if(mUnusedMC.size() > 0)
+          {
+            mc = mUnusedMC.front();
+            mUnusedMC.pop();
+          }
+      }
+      if(!mc)
+        { mc = new MeshedChunk({cHash, MeshData()}); }
+      else
+        {
+          mc->hash = cHash;
+          mc->mesh.swap();
+        }
+      
+      const Point3i minP{cPos[0]*Chunk::sizeX,
+                         cPos[1]*Chunk::sizeY,
+                         cPos[2]*Chunk::sizeZ};
+      const Point3i maxP = minP + Chunk::size;
+
+      bounds->lock();
+      auto &chunkShell = bounds->getShell();
+      for(auto &iter : chunkShell)
+        {
+          const int32_t hash = iter.first;
+          const ActiveBlock &block = iter.second;
           
-          if(block.type != block_t::NONE)
-            { // block is not empty
-              //LOGD("BLOCK (%d, %d, %d) ACTIVE", bp[0], bp[1], bp[2]);
-              
-              for(int i = 0; i < 6; i++)
+          const Point3i bp = Hash::unhash(hash);
+          const Point3i vOffset = minP + bp;
+          
+          for(int i = 0; i < 6; i++)
+            {
+              if((bool)(block.sides & sides[i]))
                 {
-                  const Point3i np = bp + sideDirections[i];
-                  /*
-                  auto iter = mChunks.find(Hash::hash(chunkPos(np)));
-                  if(iter != mChunks.end() && iter->second &&
-                     iter->second->get(Chunk::blockPos(np)) == block_t::NONE )
-                  */
-                  block_t nt = getBlock(minP + np, neighbors);
-                  if(/*block.type != nt && */(!isSimpleBlock(block.type) || !isSimpleBlock(nt)))
-                    { // block on side i is empty (face is active)
-                      const Point3i vOffset = minP + bp;
-                      const unsigned int numVert = mc->mesh.vertices.size();
-
-                      Vector3f offset;
-                      if(block.data)
-                        {
-                          if(isFluidBlock(block.type))
-                            {
-#define MIN_MESH_LEVEL 0.005
-                              float level = reinterpret_cast<FluidData*>(block.data)->fluidLevel;
-                              if(level < MIN_MESH_LEVEL ||
-                                 reinterpret_cast<FluidData*>(block.data)->gone() )
-                                { continue; }
-                              offset[2] = (float)level - 1.0f;
-                            }
-                          //std::cout << offset << "\n";
-                        }
-
-                      int vn = 0;
-                      int sum0 = 0;
-                      int sum1 = 0;
-                      for(auto v : faceVertices[sides[i]] )
-                        { // add vertices for this face
-
-                          //std::cout << v.pos << "\n";
-
-                          Point3f p = minP + bp + v.pos; 
-                          p[2] += (v.pos[2] > 0 ? offset[2] : 0.0f);
-                          const int lighting = getLighting(minP + bp, v.pos, sides[i], neighbors);
-                          
-                          mc->mesh.vertices.emplace_back(p,
-                                                         v.normal,
-                                                         v.texcoord+offset,
-                                                         (int)block.type - 1,
-                                                         (float)lighting / (float)4 );
-
-                          //std::cout << mc->mesh.vertices.back().pos << "\n";
-                          
-                          if(vn < 2) { sum0 += lighting; }
-                          else       { sum1 += lighting; }
-                          vn++;
-                        }
-                      if(sum1 >= sum0)
-                        {
-                          for(auto i : flippedIndices)
-                            { mc->mesh.indices.push_back(numVert + i); }
-                        }
-                      else
-                        {
-                          for(auto i : faceIndices)
-                            { mc->mesh.indices.push_back(numVert + i); }
-                        }
+                  int vn = 0;
+                  int sum0 = 0;
+                  int sum1 = 0;
+                  const unsigned int numVert = mc->mesh.vertices().size();
+                  for(auto &v : faceVertices[sides[i]])
+                    { // add vertices for this face
+                      const int lighting = getLighting(vOffset, v.pos, sides[i], neighbors);
+                      sum0 += (vn < 2) ? lighting : 0;
+                      sum1 += (vn < 2) ? 0 : lighting;
+                      
+                      mc->mesh.vertices().emplace_back(vOffset + v.pos,
+                                                       v.normal,
+                                                       v.texcoord,
+                                                       (int)block.block - 1,
+                                                       (float)lighting / (float)4 );
+                      vn++;
                     }
-                  // TODO: Complex blocks / etc...
+                  const std::array<unsigned int, 6> *orientedIndices = (sum1 > sum0 ?
+                                                                        &flippedIndices :
+                                                                        &faceIndices );
+                  for(auto i : *orientedIndices)
+                    { mc->mesh.indices().push_back(numVert + i); }
                 }
             }
         }
-  //LOGD("MESH VERTICES: %d, INDICES: %d", mc->mesh.vertices.size(), mc->mesh.indices.size());
-
-  // pass to render thread
-  if(!mc->mesh.empty())
-    {
-      //LOGD("VALID MESH!");
+      bounds->unlock();
+      // pass to render thread
+      std::lock_guard<std::mutex> lock(mRenderQueueLock);
       mRenderQueue.push(mc);
     }
-  else
-    {
-      //LOGD("SKIPPING EMPTY MESH!");
-      delete mc;
-    }
-  //LOGD("DONE PUSHING MESH!");
 }
 
 void World::chunkLoadCallback(Chunk *chunk)
 {
   //LOGD("CHUNK LOAD CALLBACK --> %d", (long)chunk);
   //  mChunks[Hash::hash(chunk->pos())] = chunk;
+  mNumLoading--;
+  std::lock_guard<std::mutex> lock(mLoadLock);
   mLoadQueue.push(chunk);
 }
 
@@ -1031,6 +1134,8 @@ void World::setCenter(const Point3i &chunkCenter)
   mCenter = chunkCenter;
   mMinChunk = mCenter - mLoadRadius;
   mMaxChunk = mCenter + mLoadRadius;
+  mFluids.setRange(mMinChunk, mMaxChunk);
+  mCenterDistIndex = 0;
 }
 void World::setRadius(const Vector3i &chunkRadius)
 {
@@ -1041,9 +1146,17 @@ void World::setRadius(const Vector3i &chunkRadius)
   mMinChunk = mCenter - mLoadRadius;
   mMaxChunk = mCenter + mLoadRadius;
 
-  mFogStart = (mLoadRadius[0]*Chunk::sizeX)*0.9f;
-  mFogEnd = (mLoadRadius[0]*Chunk::sizeX)*1.0f;
+  Vector3f bSize = mLoadRadius*Chunk::size;
+  if(bSize[0] == 0) bSize[0] += Chunk::sizeX/2;
+  if(bSize[1] == 0) bSize[1] += Chunk::sizeY/2;
+  if(bSize[2] == 0) bSize[2] += Chunk::sizeZ/2;
+  float minDim = std::min(bSize[0], std::min(bSize[1], bSize[2]));
+  mDirScale = Vector3f{minDim/bSize[0],minDim/bSize[1],minDim/bSize[2]};
+  mDirScale *= mDirScale;
+  mFogStart = (minDim)*0.98f;
+  mFogEnd = (minDim)*1.0f;
   mRadChanged = true;
+  mCenterDistIndex = 0;
 }
 Point3i World::getCenter() const
 { return mCenter; }
@@ -1116,28 +1229,20 @@ bool World::rayCast(const Point3f &p, const Vector3f &d, float radius,
   radius /= d.length();
   
   Point3f pi{std::floor(p[0]), std::floor(p[1]), std::floor(p[2])};
-  Point3i chunkMin = mMinChunk;
-  Point3i chunkMax = mMaxChunk;
+  Point3i chunkMin = mMinChunk*Chunk::size;
+  Point3i chunkMax = (mMaxChunk+1)*Chunk::size;
   
-  while((step[0] > 0 ? (pi[0] <= chunkMax[0]*Chunk::sizeX) : (pi[0] >= chunkMin[0]*Chunk::sizeX)) &&
-	(step[1] > 0 ? (pi[1] <= chunkMax[1]*Chunk::sizeY) : (pi[1] >= chunkMin[1]*Chunk::sizeY)) &&
-	(step[2] > 0 ? (pi[2] <= chunkMax[2]*Chunk::sizeZ) : (pi[2] >= chunkMin[2]*Chunk::sizeZ)) )
+  while((step[0] > 0 ? (pi[0] <= chunkMax[0]) : (pi[0] >= chunkMin[0])) &&
+	(step[1] > 0 ? (pi[1] <= chunkMax[1]) : (pi[1] >= chunkMin[1])) &&
+	(step[2] > 0 ? (pi[2] <= chunkMax[2]) : (pi[2] >= chunkMin[2])) )
     {
-      if(!(pi[0] < chunkMin[0]*Chunk::sizeX ||
-	   pi[1] < chunkMin[1]*Chunk::sizeY ||
-	   pi[2] < chunkMin[2]*Chunk::sizeZ ||
-	   pi[0] > chunkMax[0]*Chunk::sizeX ||
-	   pi[1] > chunkMax[1]*Chunk::sizeY ||
-	   pi[2] > chunkMax[2]*Chunk::sizeZ ))
+      if(!(pi[0] < chunkMin[0] || pi[1] < chunkMin[1] || pi[2] < chunkMin[2] ||
+	   pi[0] > chunkMax[0] || pi[1] > chunkMax[1] || pi[2] > chunkMax[2] ))
 	{
-          //LOGD("GETTING BLOCK AT");
-	  Block *b = at(pi);
-          //LOGD("BLOCK: %d", (long)b);
-	  if(b && b->type != block_t::NONE)// &&
-            //!(isFluidBlock(b->type) && reinterpret_cast<FluidData*>(getData(pi))->fluidLevel < 0.005))
+	  blockOut.type = getType(pi);
+	  if(blockOut.type != block_t::NONE)
 	    {
-	      blockOut.type = b->type;
-              blockOut.data = getData(pi);
+              blockOut.data = nullptr;//mFluids[cHash]->getData(posOut);
 	      posOut = pi;
 	      return true;
 	    }

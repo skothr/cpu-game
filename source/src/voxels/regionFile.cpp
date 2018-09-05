@@ -1,5 +1,7 @@
 #include "regionFile.hpp"
 
+#include "fluid.hpp"
+
 #include <sstream>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -33,13 +35,16 @@ RegionFile::~RegionFile()
 
 void RegionFile::close()
 {
-
+  std::lock_guard<std::mutex> lock(mMapLock);
+  LOGD("UNMAPPING REGION FILE MEMORY...");
   if(munmap(mFileData, mFileSize) < 0)
     {
       LOGE("Failed to close region file!");
     }
-  
-  ::close(mFd);
+    LOGD("CLOSING FD...");
+  if(mFd >= 0)
+    { ::close(mFd); }
+    LOGD("DONE");
 }
 
 bool RegionFile::openFile()
@@ -95,7 +100,7 @@ bool RegionFile::createFile()
 
   // initial file sizing (header + lookup + room for one chunk)
   mFileSize = (sizeof(wData::Header) + sizeof(wData::ChunkInfo) * CHUNKS_PER_REGION +
-               Chunk::totalSize * Block::dataSize );
+               Chunk::totalSize * (Block::dataSize+Fluid::dataSize) );
   if(ftruncate(mFd, mFileSize) < 0)
     {
       ::close(mFd);
@@ -118,7 +123,7 @@ bool RegionFile::createFile()
 
 bool RegionFile::resizeFile(int extraBytes)
 {
-  //std::lock_guard<std::mutex> lock(mMapLock);
+  std::lock_guard<std::mutex> lock(mMapLock);
   if(ftruncate(mFd, mFileSize + extraBytes) < 0)
     {
       LOGE("Failed to resize region file!");
@@ -155,8 +160,8 @@ bool RegionFile::readRegion()
   readLookup();
   for(auto &d : mChunkInfo)
     {
-      if(d.chunkSize != 0)
-        { std::cout << "Found chunk: " << d.offset << " | " << d.chunkSize << "\n"; }
+      //if(d.chunkSize != 0)
+      //{ std::cout << "Found chunk: " << d.offset << " | " << d.chunkSize << "\n"; }
     }
   
   return true;
@@ -219,12 +224,12 @@ bool RegionFile::writeChunk(const Chunk *chunk)
 {
   //std::lock_guard<std::mutex> lock(mMapLock);
   const Point3i chunkPos = chunk->pos();
-  std::cout << "WRITING CHUNK: " << chunkPos << "\n";
+  //std::cout << "WRITING CHUNK: " << chunkPos << "\n";
   const Point3i cPos{chunkPos[0] & (15),
                      chunkPos[1] & (15),
                      chunkPos[2] & (15) };
   const uint16_t cIndex = chunkIndex(cPos);
-  std::cout << "Chunk index: " << cIndex << " : " << cPos << "\n";
+  //std::cout << "Chunk index: " << cIndex << " : " << cPos << "\n";
   
   if(!mChunkStatus[cIndex].exchange(true))
     {
@@ -235,10 +240,10 @@ bool RegionFile::writeChunk(const Chunk *chunk)
       if(mChunkInfo[cIndex].chunkSize == 0)
         { // add chunk to end of file
           mHeader.nextOffset = mNextOffset.load();
-          mChunkInfo[cIndex].offset = mNextOffset.load();
+          mChunkInfo[cIndex].offset = mHeader.nextOffset;
           mChunkInfo[cIndex].chunkSize = dataSize;
 
-          LOGD("NEXT OFFSET: %d", mNextOffset.load());
+          LOGD("NEXT OFFSET: %d", mHeader.nextOffset);
   
           LOGD("Writing to offset %d (%d bytes)", mChunkInfo[cIndex].offset, mChunkInfo[cIndex].chunkSize);
           // overwrite chunk
@@ -248,7 +253,7 @@ bool RegionFile::writeChunk(const Chunk *chunk)
           writeChunkData(cIndex);
       
           mNextOffset.store(mHeader.nextOffset + dataSize);
-          LOGD("Next offset: %d", mHeader.nextOffset);
+          LOGD("Next offset: %d", mHeader.nextOffset + dataSize);
           writeOffset();
       
           if(!resizeFile(dataSize))
@@ -260,11 +265,11 @@ bool RegionFile::writeChunk(const Chunk *chunk)
       else
         {
           mChunkInfo[cIndex].chunkSize = dataSize;
-          LOGD("Writing to offset %d (%d bytes)", mChunkInfo[cIndex].offset, mChunkInfo[cIndex].chunkSize);
+          //LOGD("Writing to offset %d (%d bytes)", mChunkInfo[cIndex].offset, mChunkInfo[cIndex].chunkSize);
           // overwrite chunk
-          LOGD("Writing lookup data...");
+          //LOGD("Writing lookup data...");
           writeLookup(cIndex);
-          LOGD("Writing chunk data...");
+          //LOGD("Writing chunk data...");
           writeChunkData(cIndex);
         }
       mChunkStatus[cIndex].store(false);
@@ -287,19 +292,16 @@ void RegionFile::calRegionPos()
   std::string token;
   std::getline(ss, token, '.'); // first is "r."
   std::getline(ss, token, '.'); // x
-  std::cout << "X:" << token << "\n";
   convert.clear();
   convert.str(token);
   convert >> mRegionPos[0];
   
   std::getline(ss, token, '.'); // y
-  std::cout << "Y:" << token << "\n";
   convert.clear();
   convert.str(token);
   convert >> mRegionPos[1];
   
   std::getline(ss, token, '.'); // z
-  std::cout << "Z:" << token << "\n";
   convert.clear();
   convert.str(token);
   convert >> mRegionPos[2];
@@ -361,7 +363,7 @@ inline void RegionFile::writeLookup()
 {
   const int offset = sizeof(wData::Header);
   const int bytes = sizeof(wData::ChunkInfo) * CHUNKS_PER_REGION;
-  std::cout << "Writing lookup at: " << offset << " (" << bytes  << " bytes)\n";
+  //std::cout << "Writing lookup at: " << offset << " (" << bytes  << " bytes)\n";
   std::memcpy((void*)(mFileData + offset), (void*)&mChunkInfo[0], bytes);
 }
 inline void RegionFile::readChunkData(int chunkIndex)
@@ -371,7 +373,7 @@ inline void RegionFile::readChunkData(int chunkIndex)
 }
 inline void RegionFile::writeChunkData(int chunkIndex)
 {
-  std::cout << "Writing chunk at: " << mChunkInfo[chunkIndex].offset << " (" << mChunkInfo[chunkIndex].chunkSize  << " bytes)\n";
+  //std::cout << "Writing chunk at: " << mChunkInfo[chunkIndex].offset << " (" << mChunkInfo[chunkIndex].chunkSize  << " bytes)\n";
   std::memcpy((void*)(mFileData + mChunkInfo[chunkIndex].offset),
                 (void*)&mChunkData[chunkIndex][0], mChunkInfo[chunkIndex].chunkSize );
 }

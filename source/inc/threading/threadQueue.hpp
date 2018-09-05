@@ -7,10 +7,11 @@
 template<typename T>
 class ThreadQueue
 {
+  static_assert(std::is_pointer<T>::value, "ThreadQueue typename must be a pointer type.");
 public:
   ThreadQueue() { }
 
-  void push(T *obj)
+  void push(T obj)
   {
     if(mLocked)
       {
@@ -23,9 +24,9 @@ public:
       }
   }
   
-  T* pop()
+  T pop()
   {
-    T *obj = nullptr;
+    T obj = nullptr;
     bool locked = mLocked;
     
     if(!locked) { lock(); }
@@ -65,7 +66,7 @@ public:
   }
   
 private:
-  std::queue<T*> mQueue;
+  std::queue<T> mQueue;
   std::mutex mLock;
   bool mLocked = false;
 };

@@ -4,6 +4,7 @@
 #include <cstdint>
 #include "vector.hpp"
 
+typedef int32_t hash_t;
 namespace HashUtil
 {
   inline int32_t expand(int32_t x)
@@ -27,12 +28,12 @@ namespace HashUtil
   inline int32_t unhashX(int32_t cx)
   { return unexpand(cx); }
   inline int32_t unhashY(int32_t cy)
-  { return unexpand(cy); }
+  { return unexpand(cy>>1); }
   inline int32_t unhashZ(int32_t cz)
-  { return unexpand(cz); }
+  { return unexpand(cz>>2); }
 };
 namespace Hash
-{ 
+{
   inline int32_t hash(int32_t x, int32_t y, int32_t z)
   { return HashUtil::expand(x) + (HashUtil::expand(y) << 1) + (HashUtil::expand(z) << 2); }
   inline int32_t hash(const Point3i &p)

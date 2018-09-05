@@ -2,7 +2,6 @@
 #define CHUNK_HPP
 
 #include "block.hpp"
-#include "fluid.hpp"
 #include "vector.hpp"
 #include "indexing.hpp"
 #include <array>
@@ -49,27 +48,24 @@ public:
   bool isEmpty() const;
 
   // data access
-  Block& operator[](const Point3i &bp)
+  block_t operator[](const Point3i &bp) const
   { return mBlocks[mIndexer.index(bp)]; }
-  const Block& operator[](const Point3i &bp) const
-  { return mBlocks[mIndexer.index(bp)]; }
-  Block* at(int bx, int by, int bz);
-  Block* at(const Point3i &bp);
-  Block* at(int bi);
+  block_t* at(int bx, int by, int bz);
+  block_t* at(const Point3i &bp);
+  block_t* at(int bi);
   block_t getType(int bx, int by, int bz) const;
   block_t getType(const Point3i &bp) const;
-  BlockData* getData(const Point3i &bp);
-  std::array<Block, totalSize>& data();
-  const std::array<Block, totalSize>& data() const;
+  std::array<block_t, totalSize>& data();
+  const std::array<block_t, totalSize>& data() const;
   
   //FluidData& getFluid(int bx, int by, int bz);
   //FluidData& getFluid(const Point3i &bp);
 
-  std::unordered_map<int, FluidData*> getFluids();
+  //std::unordered_map<int, FluidData*> getFluids();
 
   // setting
-  bool setBlock(int bx, int by, int bz, block_t type, BlockData *data = nullptr);
-  bool setBlock(const Point3i &bp, block_t type, BlockData *data = nullptr);
+  bool setBlock(int bx, int by, int bz, block_t type);
+  bool setBlock(const Point3i &bp, block_t type);
   //void setData(const std::array<Block, totalSize> &data);//, const std::unordered_map<int, FluidData> &fluids);
   
   // updating
@@ -77,6 +73,8 @@ public:
   void setPriority(bool priority) { mPriority = priority; }
   bool isDirty() { return mDirty; }
   void setDirty(bool dirty) { mDirty = dirty; }
+  bool needsSave() { return mNeedSave; }
+  void setNeedSave(bool needSave) { mNeedSave = needSave; }
   bool isIncomplete() { return mIncomplete; }
   void setIncomplete(bool incomplete) { mIncomplete = incomplete; }
 
@@ -92,14 +90,15 @@ private:
   static const Indexer<sizeX, sizeY, sizeZ> mIndexer;
   
   Point3i mWorldPos;
-  std::array<Block, totalSize> mBlocks;
-  std::unordered_map<int, FluidData*> mFluids;
-  std::unordered_map<int, BlockData*> mActive;
+  std::array<block_t, totalSize> mBlocks;
+  //std::unordered_map<int, FluidData*> mFluids;
+  //std::unordered_map<int, BlockData*> mActive;
   
   std::atomic<int> mNumBlocks = 0;
-  int mNumBytes = totalSize*Block::dataSize;
+  //int mNumBytes = totalSize*Block::dataSize;
   
   std::atomic<bool> mDirty = true;
+  std::atomic<bool> mNeedSave = false;
   std::atomic<bool> mIncomplete = true;
   std::atomic<bool> mPriority = false;
 

@@ -1,6 +1,8 @@
 #include "gameWidget.hpp"
 
 #include "logging.hpp"
+#include "fluid.hpp"
+
 #include <algorithm>
 #include <chrono>
 #include <iostream>
@@ -11,110 +13,224 @@
 #include <exception>
 #include <functional>
 
+#include <QLabel>
 #include <QString>
 #include <QOpenGLShaderProgram>
 #include <QOpenGLBuffer>
 #include <QCursor>
 #include <QWidget>
 #include <QTimer>
+#include <QMouseEvent>
+#include <QKeyEvent>
+#include <QWheelEvent>
+#include <QStackedLayout>
+#include <QGridLayout>
 
 #include "block.hpp"
 #include "player.hpp"
 #include "vector.hpp"
 #include "world.hpp"
+#include "overlay.hpp"
+#include "pauseWidget.hpp"
+#include "controlInterface.hpp"
 
-#define RENDER_TIMESTEP_MS 5 //5 //ms
-#define RENDER_TIMESTEP_S (RENDER_TIMESTEP_MS / 1000.0f)
 
 //#define PLAYER_POS Point2i{0,0}
 
-cGameWidget::cGameWidget(QWidget *parent, int numThreads, const std::string &worldName, uint32_t seed)
-  : GlWidget(parent), mMousePos(-1000,-1000)
+GameWidget::GameWidget(QWidget *parent)
+  : QOpenGLWidget(parent), mMousePos(-1000,-1000)
 {
-  mEngine = new VoxelEngine(this, numThreads, worldName, seed);
-  
+  mEngine = new VoxelEngine(this);
   mRenderTimer = new QTimer(this);
-  connect(mRenderTimer, SIGNAL(timeout()), this, SLOT(update())); 
-  mRenderTimer->start(RENDER_TIMESTEP_MS);
-  
-  mPosDisplay = new QTimer(this);
-  connect(mPosDisplay, SIGNAL(timeout()), SLOT(sendPos()));
-  mPosDisplay->start(10);
+  mRenderTimer->setInterval(RENDER_THREAD_SLEEP_MS);
+  mInfoTimer = new QTimer(this);
+  mInfoTimer->setInterval(INFO_THREAD_SLEEP_MS);
 
+  // set opengl format
+  QSurfaceFormat format;
+  format.setDepthBufferSize(24);
+  format.setStencilBufferSize(8);
+  format.setVersion(4, 6);
+  format.setSamples(1);
+  format.setRenderableType(QSurfaceFormat::OpenGL);
+  setFormat(format);
+
+  // HUD overlay
+  mPlayerOverlay = new Overlay(this, {LabelDesc("POSITION", (align_t)(align_t::TOP)),
+                                      LabelDesc("CHUNK", (align_t)(align_t::TOP)),
+                                      LabelDesc("BLOCK", (align_t)(align_t::TOP)),
+                                      LabelDesc("LIGHT", (align_t)(align_t::TOP))});
+  mPlayerOverlay->raise();
+  mChunkOverlay = new Overlay(this,
+                              { LabelDesc("CHUNKS LOADED", (align_t)(align_t::TOP | align_t::RIGHT)),
+                                LabelDesc("CHUNKS MESHED", (align_t)(align_t::TOP | align_t::RIGHT)) });
+  mChunkOverlay->raise();
+
+  mPause = new PauseWidget(this);
+  mPause->hide();
+  
+  // game viewport layout
+  mOverlayLayout = new QStackedLayout();
+  mOverlayLayout->setStackingMode(QStackedLayout::StackAll);
+  mOverlayLayout->addWidget(mPlayerOverlay);
+  mOverlayLayout->addWidget(mChunkOverlay);
+  mOverlayLayout->addWidget(mPause);
+  
+  // control layouts
+  mControl = new ControlInterface(mEngine);
+  // add to main grid layout
+  mMainLayout = new QGridLayout(this);
+  mMainLayout->setSpacing(0);
+  mMainLayout->setMargin(0);
+  mMainLayout->addLayout(mOverlayLayout, 0, 0, 4, 4);
+  mMainLayout->addWidget(mControl, 2, 0, 2, 4, Qt::AlignBottom);
+
+  connect(mRenderTimer, SIGNAL(timeout()), this, SLOT(update())); 
+  connect(mInfoTimer, SIGNAL(timeout()), SLOT(updateInfo())); 
+  connect(mPause, SIGNAL(resumed()), this, SLOT(resume()));
+  connect(mPause, SIGNAL(quit()), this, SIGNAL(quit()));
+  
+  setLayout(mMainLayout);
   setFocusPolicy((Qt::FocusPolicy)(Qt::StrongFocus));
   setFocus();
-  grabKeyboard();
   setMouseTracking(true);
 }
 
-cGameWidget::~cGameWidget()
+GameWidget::~GameWidget()
 {
-  LOGD("~cGameWidget()...");
-  mRenderTimer->stop();
-  mPosDisplay->stop();
-  mEngine->stopPhysics();
-  
+  stop();
   makeCurrent();
-  LOGD("Cleaning up GL...");
   mEngine->cleanUpGL();
-  LOGD("Done cleaning up GL.");
   doneCurrent();
-  
-  //delete mRenderTimer;
-  //delete mPosDisplay;
+  LOGD("Deleting engine...");
   delete mEngine;
+  LOGD("DONE Deleting engine...");
 }
 
-VoxelEngine* cGameWidget::getEngine()
-{
-  return mEngine;
-}
+VoxelEngine* GameWidget::getEngine()
+{ return mEngine; }
 
-
-void cGameWidget::glInit()
+void GameWidget::initializeGL()
 {
-  GlWidget::glInit();
+  LOGD("INIT GL!!");
   glClearColor(0.229, 0.657, 0.921, 1.0);
+  glEnable(GL_DEPTH_TEST);
+  glDepthMask(GL_TRUE);
+  glEnable(GL_BLEND);
+  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+  glEnable(GL_LINE_SMOOTH);
+  glHint(GL_LINE_SMOOTH_HINT, GL_NICEST);
+  
+  // init game objects
   mEngine->initGL(this);
 }
 
-void cGameWidget::render()
+void GameWidget::paintGL()
+{
+  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+  render();
+}
+
+
+void GameWidget::resizeGL(int w, int h)
+{
+  glViewport(0, 0, w, h);
+  
+  VoxelEngine::ProjDesc proj = mEngine->getProjection();
+  proj.aspect = (float)w/(float)h;
+  mEngine->setProjection(proj);
+}
+
+void GameWidget::render()
 {
   mEngine->render();
 }
 
-
-void cGameWidget::sendPos()
+void GameWidget::start()
 {
+  mControl->initRadius(mEngine->getWorld()->getRadius());
+  mEngine->start();
+  mRenderTimer->start();
+  mInfoTimer->start();
+}
+void GameWidget::stop()
+{
+  mInfoTimer->stop();
+  mRenderTimer->stop();
+  mEngine->stop();
+}
+void GameWidget::pause(bool status)
+{
+  mEngine->pause(status);
+
+  if(status)
+    { mPause->show(); }
+  else
+    { mPause->hide(); }
+}
+
+void GameWidget::resume()
+{
+  pause(false);
+}
+
+  
+void GameWidget::updateInfo()
+{
+  // update player info
   Point3f ppos = mEngine->getPlayer()->getPos();
   Point3i coll = mEngine->getPlayer()->getCollisions();
   Point3i cpos = World::chunkPos(ppos);
-  emit posChanged(ppos, coll, cpos);
+  QLabel *pl = mPlayerOverlay->getLabel(0);
+  QLabel *cl = mPlayerOverlay->getLabel(1);
+  
+  std::stringstream ss;
+  ss << "Position: " << ppos << "  (" << coll << ")";
+  pl->setText(ss.str().c_str());
+  ss.str(""); ss.clear();
+  ss << "Chunk:    " << cpos;
+  cl->setText(ss.str().c_str());
+  ss.str(""); ss.clear();
+  
+  QLabel *tl = mPlayerOverlay->getLabel(2);
+  QLabel *ll = mPlayerOverlay->getLabel(3);
   CompleteBlock b = mEngine->getPlayer()->selectedBlock();
-  if(b.type != block_t::NONE)
-    {
-      emit blockInfo(b.type, (b.data && isFluidBlock(b.type) ?
-                              reinterpret_cast<FluidData*>(b.data)->fluidLevel : 0 ));
-    }
-  else
-    {
-      emit blockInfo(block_t::NONE, 0);
-    }
+  float lightLevel = 0.0f;
+  if(isFluidBlock(b.type))
+    { lightLevel = reinterpret_cast<Fluid*>(b.data)->fluidLevel; }
+  ss << "Level:    " << lightLevel;
+  ll->setText(ss.str().c_str());
+  tl->setText(("Type:     " + toString(b.type)).c_str());
+  ss.str(""); ss.clear();
+  
+  // update chunk info
+  int totalChunks = mEngine->getWorld()->totalChunks();
+  int centerChunks = mEngine->getWorld()->centerChunks();
+  int chunksLoaded = mEngine->getWorld()->numLoaded();
+  int chunksMeshed = mEngine->getWorld()->numMeshed();
+
+  QLabel *cll = mChunkOverlay->getLabel(0);
+  QLabel *cml = mChunkOverlay->getLabel(1);
+  ss << "Loaded:  " << chunksLoaded << " / " << totalChunks;
+  cll->setText(ss.str().c_str());
+  ss.str(""); ss.clear();
+  ss << "Meshed:  " << chunksMeshed << " / " << centerChunks;
+  cml->setText(ss.str().c_str());
 }
 
-void cGameWidget::setTool(block_t type)
+void GameWidget::setTool(block_t type)
 {
   mEngine->setTool(type, nullptr);
 }
 
-void cGameWidget::captureMouse(bool capture)
+void GameWidget::captureMouse(bool capture)
 {
   mMouseCaptured = capture;
 }
-bool cGameWidget::getMouseCaptured() const
+bool GameWidget::getMouseCaptured() const
 { return mMouseCaptured; }
 
-void cGameWidget::mousePressEvent(QMouseEvent *event)
+void GameWidget::mousePressEvent(QMouseEvent *event)
 {
   mMouseDown = true;
   
@@ -129,9 +245,8 @@ void cGameWidget::mousePressEvent(QMouseEvent *event)
     { data.mouseClick.button = mouseButton_t::MIDDLE; }
   mEngine->sendInput(data);
 }
-void cGameWidget::mouseReleaseEvent(QMouseEvent *event)
+void GameWidget::mouseReleaseEvent(QMouseEvent *event)
 {
-  Q_UNUSED(event);
   mMouseDown = false;
   
   InputData data;
@@ -145,7 +260,7 @@ void cGameWidget::mouseReleaseEvent(QMouseEvent *event)
     { data.mouseClick.button |= mouseButton_t::MIDDLE; }
   mEngine->sendInput(data);
 }
-void cGameWidget::mouseMoveEvent(QMouseEvent *event)
+void GameWidget::mouseMoveEvent(QMouseEvent *event)
 {
   if(mMousePos.x() > -500)
     {
@@ -174,18 +289,30 @@ void cGameWidget::mouseMoveEvent(QMouseEvent *event)
   QOpenGLWidget::mouseMoveEvent(event);
 }
 
-void cGameWidget::keyPressEvent(QKeyEvent *event)
+void GameWidget::keyPressEvent(QKeyEvent *event)
 {
   InputData data;
   switch(event->key())
     {
-      case Qt::Key_Escape:
-	LOGI("Escape pressed (cGameWidget).");
-      // close parent widget
-      // TODO: Recursively close in case multiple super-parents
-      event->ignore();
-      return;
-
+    case Qt::Key_Escape:   // pause game, or back up one menu
+      pause(!mEngine->isPaused());
+      event->accept();
+      break;
+    case Qt::Key_X:        // toggle mouse capture
+      captureMouse(!getMouseCaptured());
+      if(getMouseCaptured())
+        {
+          LOGD("Captured mouse!");
+          mControl->collapse();
+        }
+      else
+        {
+          LOGD("Released mouse!");
+          mControl->expand();
+        }
+      event->accept();
+      break;
+      
       // move player
     case Qt::Key_W:
       data.type = input_t::MOVE_FORWARD;
@@ -240,7 +367,7 @@ void cGameWidget::keyPressEvent(QKeyEvent *event)
   event->accept();
 }
 
-void cGameWidget::keyReleaseEvent(QKeyEvent *event)
+void GameWidget::keyReleaseEvent(QKeyEvent *event)
 {
   InputData data;
   switch(event->key())
@@ -285,37 +412,38 @@ void cGameWidget::keyReleaseEvent(QKeyEvent *event)
   event->accept();
 }
 
-void cGameWidget::wheelEvent(QWheelEvent *event)
+void GameWidget::wheelEvent(QWheelEvent *event)
 {
-  /*
-  static const int inertia = 80;
-  static int position = 0;
-  QPoint numPixels = event->pixelDelta();
-
-  position += numPixels.y();
-  while(position > inertia)
-    {
-      mEngine->nextTool();
-      position -= inertia;
-    }
-  while(position < -inertia)
-    {
-      mEngine->prevTool();
-      position += inertia;
-    }
   
-  event->accept();
-  */
+  // static const int inertia = 80;
+  // static int position = 0;
+  // QPoint numPixels = event->pixelDelta();
+
+  // position += numPixels.y();
+  // while(position > inertia)
+  //   {
+  //     mEngine->nextTool();
+  //     position -= inertia;
+  //   }
+  // while(position < -inertia)
+  //   {
+  //     mEngine->prevTool();
+  //     position += inertia;
+  //   }
+  
+  // event->accept();
 }
 
-void cGameWidget::onResize(int w, int h)
+
+/*
+void GameWidget::onResize(int w, int h)
 {
   VoxelEngine::ProjDesc proj = mEngine->getProjection();
   proj.aspect = (float)w/(float)h;
   mEngine->setProjection(proj);
 }
 
-void cGameWidget::resizeEvent(QResizeEvent *event)
+void GameWidget::resizeEvent(QResizeEvent *event)
 {
   GlWidget::resizeEvent(event);
   static bool first = true;
@@ -325,3 +453,4 @@ void cGameWidget::resizeEvent(QResizeEvent *event)
     { }
   event->accept();
 }
+*/

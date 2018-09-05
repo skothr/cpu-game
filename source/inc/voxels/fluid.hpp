@@ -4,36 +4,35 @@
 #include "block.hpp"
 #include "logging.hpp"
 
-#define MIN_FLUID_LEVEL 0.0001
-static const std::array<float, BLOCK_FLUID_COUNT> gFluidEvap
-  {{    0.0001f, // WATER
-        0.0001f // LAVA
-  }};
+#define MIN_FLUID_LEVEL 0.0001f
+static std::unordered_map<block_t, float> gFluidEvap
+  { {block_t::WATER, 0.0001f},
+    {block_t::LAVA, 0.0001f} };
 
-class FluidData : public BlockData
+class Fluid : public BlockData
 {
 public:
-  virtual int dataSize() const override { return sizeof(data); }
   
-  FluidData(float evap, float level)
-    : fluidEvap(evap), fluidLevel(level)
+  Fluid(block_t type, float evap, float level)
+    : type(type), fluidEvap(evap), fluidLevel(level)
   { }
-  FluidData(const uint8_t *dataIn)
+  Fluid(const uint8_t *dataIn)
   {
     deserialize(dataIn);
   }
-  FluidData(const FluidData &other)
-    : fluidEvap(other.fluidEvap), fluidLevel(other.fluidLevel)
+  Fluid(const Fluid &other)
+    : type(other.type), fluidEvap(other.fluidEvap), fluidLevel(other.fluidLevel)
   { }
-  FluidData& operator=(const FluidData &other)
+  Fluid& operator=(const Fluid &other)
   {
+    type = other.type;
     fluidEvap = other.fluidEvap;
     fluidLevel = other.fluidLevel;
     return *this;
   }
 
   virtual BlockData* copy() const override
-  { return new FluidData(*this); }
+  { return new Fluid(type, fluidEvap, fluidLevel); }
   
   bool step()
   {
@@ -60,26 +59,28 @@ public:
   
   int serialize(uint8_t *dataOut) const
   {
-    std::memcpy((void*)dataOut, (void*)data, dataSize());
-    return dataSize();
+    std::memcpy((void*)dataOut, (void*)data, dataSize);
+    return dataSize;
   }
   int deserialize(const uint8_t *dataIn)
   {
     std::memcpy((void*)data, (void*)dataIn, sizeof(data));
   }
 
-  bool gone() const
+  bool isEmpty() const
   { return fluidLevel <= MIN_FLUID_LEVEL; }
   
   union
   {
     struct
     {
+      block_t type;
       float fluidEvap;
       float fluidLevel;
     };
     uint8_t data[sizeof(float)*2];
   };
+  static const int dataSize = sizeof(data);
 };
 
 

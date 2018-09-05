@@ -10,20 +10,23 @@ class ThreadPool
 public:
   typedef std::function<void(int id)> callback_t;
 
-  ThreadPool(int numThreads, const callback_t &callback, int sleepTimeUs = 1000);
+  ThreadPool(int numThreads, const callback_t &callback, int sleepTimeUs = 10000);
   ~ThreadPool();
 
   void start();
   void stop(bool join = true);
 
-  bool running() const   { return mThreadsRunning; }
+  void setThreads(int numThreads)
+  { mNumThreads = numThreads; }
+
+  bool running() const   { return mRunning; }
   int numThreads() const { return mNumThreads; }
   
 private:
-  const int mNumThreads;
-  const int mSleepTimeUs;
+  int mNumThreads;
+  int mSleepTimeUs;
   std::vector<std::thread> mThreads;
-  bool mThreadsRunning = false;
+  bool mRunning = false;
   callback_t mCallback;
 
   void threadLoop(int id);

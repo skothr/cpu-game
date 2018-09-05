@@ -2,6 +2,7 @@
 #define CHUNK_LOADER_HPP
 
 #include "block.hpp"
+#include "world.hpp"
 #include "chunk.hpp"
 #include "threadPool.hpp"
 #include "threadQueue.hpp"
@@ -30,11 +31,15 @@ public:
 
   void start();
   void stop();
+  void flush();
   bool isRunning() const { return mLoadPool.running(); }
+  void setThreads(int numThreads) { mLoadPool.setThreads(numThreads); }
+  int numThreads() const { return mLoadPool.numThreads(); }
 
-  bool createWorld(const std::string &worldName = "", uint32_t seed = 0);
-  bool loadWorld(const std::string &worldName = "");
+  bool createWorld(const std::string &worldName, terrain_t terrain, uint32_t seed = 0);
+  bool loadWorld(const std::string &worldName);
   
+  std::vector<World::Options> getWorlds();
   std::vector<std::string> listWorlds();
   std::vector<std::string> listRegions(const std::string &worldDir);
   
@@ -55,11 +60,13 @@ private:
   // threading
   loadCallback_t mLoadCallback;
   ThreadPool mLoadPool;
-  ThreadQueue<Chunk> mLoadQueue;
+  std::mutex mLoadLock;
+  std::queue<Chunk*> mLoadQueue;
   // other
   TerrainGenerator mTerrainGen;
   
   bool checkVersion(const Vector<uint8_t, 4> &version) const;
+  bool checkWorldDir();
 
   void loadChunk(Chunk *chunk);
   void loadWorker(int tid);

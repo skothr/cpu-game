@@ -1,120 +1,68 @@
 #ifndef CHUNK_MANAGER_HPP
 #define CHUNK_MANAGER_HPP
 
-#include "chunk.hpp"
-#include "chunkLoader.hpp"
-#include "chunkMesh.hpp"
-#include "threadPool.hpp"
-#include "chunkArray.hpp"
-
-#include <vector>
-#include <unordered_map>
+/*
 #include <queue>
-#include <deque>
-#include <string>
-#include <ostream>
-#include <thread>
-#include <mutex>
-#include <condition_variable>
-
-// NOTE:
-//  - cx/cy/cz denotes chunk position
-//  - px/py/pz denotes block position within world
-//  - bx/by/bz denotes block position within chunk
-//
-//  - cp indicates chunk position
-//  - wp indices world block position
-
-#define WRITE_FREQUENCY 1.0 // seconds
+#include "block.hpp"
 
 
-
-class Shader;
-class cTextureAtlas;
-
-class cChunkManager
+class ChunkManager
 {
 public:
-  int getThread(const Point3i &cp);
+  ChunkManager();
+  ~ChunkManager();
   
-  cChunkManager(int loadThreads, const Point3i &center, const Vector3i &loadRadius);
-  ~cChunkManager();
-
-  bool setWorld(std::string worldName, uint32_t seed = 0);
-  void start();
-  void stop();
+  int totalChunks() const { return mChunkDim[0]*mChunkDim[1]*mChunkDim[2]; }
+  int centerChunks() const { return (mChunkDim[0]-2)*(mChunkDim[1]-2)*(mChunkDim[2]-2); }
+  int numLoaded() const { return mNumLoaded; }
+  int numMeshed();
   
+  // rendering
   void initGL(QObject *qparent);
   void cleanupGL();
-  void render(const Matrix4 &pvm);
+  void render(Matrix4 pvm);
 
-
-  void setLighting(int lightLevel);
-  void updateLighting();
-  
-  void setRadius(const Vector3i &loadRadius);
-  void setCenter(const Point3i &newCenter);
-  Point3i getCenter() const;
-  Vector3i getRadius() const;
-  Point3i minChunk() const;
-  Point3i maxChunk() const;
-  
-  block_t get(const Point3i &wp);
-  Block* at(const Point3i &wp);
-  
-  void set(const Point3i &wp, block_t type);
-  int numLoaded() const;
-  int getHeightAt(const Point3i &hPos);
-  
-  void clear();
-  void saveChunks();
-
+  // updating
   void update();
-  void updateMeshes(int id);
-  void loadCallback(Chunk* &&chunk);
+  //bool step();
 
-  Point3i chunkPoint(const Point3i &worldPos) const;
-  friend std::ostream& operator<<(std::ostream &os, const cChunkManager &set);
+  bool updateMesh(int32_t hash);
   
-  static int chunkX(int wx);
-  static int chunkY(int wy);
-  static int chunkZ(int wz);
-  static Point3i chunkPos(const Point3i &wp);
+  void setCenter(const Point3i &chunkCenter);
+  void setRadius(const Vector3i &chunkRadius);
+  Point3i getCenter() const;
+  Vector3i getRadius() const { return mLoadRadius; }
+
+  block_t at(const Point3i &wp);
+  Chunk* getChunk(const Point3i &wp);
+  bool setBlock(const Point3i &p, block_t type);
   
 private:
-  /*
+  // chunk updating / threading
   std::mutex mChunkLock;
-  cChunkArray mChunks;
-  //std::unordered_map<int, cChunk*> mChunks;
-  //std::deque<cChunk*> mInactiveChunks;
-  //std::vector<std::queue<cChunk*>> mNewChunks;
-  //std::vector<std::queue<int>> mDeadChunks;
-  //std::vector<std::vector<Point3i>> mThreadLoop;
-
-  bool mLightInit = false;
   std::atomic<int> mNumLoaded = 0;
-  Point3i mCenter;
-  Vector3i mLoadRadius;
-  Vector3i mChunkDim;
-  Point3i mMinChunk;
-  Point3i mMaxChunk;
-
-  int mLighting = 0;
+  std::mutex mMeshedLock;
+  std::unordered_set<int32_t> mMeshed;
+  std::mutex mUnloadLock;
+  std::unordered_set<int32_t> mUnloadChunks;
   
-  ChunkLoader mLoader;
-  ThreadPool mUpdatePool;
+  std::mutex mRenderLock;
+  std::unordered_map<int32_t, ChunkMesh*> mRenderMeshes;
+  std::queue<ChunkMesh*> mUnusedMeshes;
+  std::mutex mRenderQueueLock;
+  std::queue<MeshedChunk*> mRenderQueue;
+  std::mutex mUnusedMCLock;
+  std::queue<MeshedChunk*> mUnusedMC;
+  std::mutex mUnloadMeshLock;
+  std::unordered_set<int32_t> mUnloadMeshes;
+  
+  std::vector<Chunk*> mMeshQueue;
+  std::unordered_set<int32_t> mMeshing;
 
-  // rendering
-  Shader *mBlockShader = nullptr;
-  cTextureAtlas *mTexAtlas = nullptr;
+  std::queue<Chunk*> mUnusedChunks;
+  std::unordered_map<int32_t, Chunk*> mChunks;
 
-  Point3f mCamPos;
-  */
-
-  void updateWorker(int id);
-  void chunkLoadCallback(Chunk* chunk);
 };
 
-
-
+*/
 #endif // CHUNK_MANAGER_HPP

@@ -8,6 +8,7 @@
 #include <initializer_list>
 #include <cassert>
 #include <cmath>
+#include <algorithm>
 
 #include "logging.hpp"
 
@@ -32,6 +33,11 @@ public:
 
   bool operator==(const Vector<T, N> &other) const;
   bool operator!=(const Vector<T, N> &other) const;
+
+  T max() const
+  { return std::max_element(&mData[0], &mData[N-1]); }
+  T min() const
+  { return std::min_element(&mData[0], &mData[N-1]); }
 
   Vector<T, N+1> asPoint() const
   {

@@ -8,13 +8,13 @@ Chunk::Chunk(const Point3i &worldPos)
   : mWorldPos(worldPos)
 { }
 /*
-Chunk::Chunk(const Point3i &worldPos, const std::array<Block, Chunk::totalSize> &data)
+Chunk::Chunk(const Point3i &worldPos, const std::array<block_t, Chunk::totalSize> &data)
   : Chunk(worldPos)
 {
   for(int bi = 0; bi < totalSize; bi++)
     {
       mBlocks[bi] = data[bi];
-      Block &b = mBlocks[bi];
+      block_t &b = mBlocks[bi];
       if(b.type != block_t::NONE)
         {
           mNumBlocks++;
@@ -34,30 +34,30 @@ bool Chunk::isEmpty() const
   return mNumBlocks == 0;
 }
 
-Block* Chunk::at(int bi)
+block_t* Chunk::at(int bi)
 { return &mBlocks[bi]; }
-Block* Chunk::at(int bx, int by, int bz)
+block_t* Chunk::at(int bx, int by, int bz)
 { return &mBlocks[mIndexer.index(bx, by, bz)]; }
-Block* Chunk::at(const Point3i &bp)
+block_t* Chunk::at(const Point3i &bp)
 { return &mBlocks[mIndexer.index(bp)]; }
 block_t Chunk::getType(int bx, int by, int bz) const
-{ return mBlocks[mIndexer.index(bx, by, bz)].type; }
+{ return mBlocks[mIndexer.index(bx, by, bz)]; }
 block_t Chunk::getType(const Point3i &bp) const
-{ return mBlocks[mIndexer.index(bp[0], bp[1], bp[2])].type; }
-std::array<Block, Chunk::totalSize>& Chunk::data()
+{ return mBlocks[mIndexer.index(bp[0], bp[1], bp[2])]; }
+std::array<block_t, Chunk::totalSize>& Chunk::data()
 { return mBlocks; }
-const std::array<Block, Chunk::totalSize>& Chunk::data() const
+const std::array<block_t, Chunk::totalSize>& Chunk::data() const
 { return mBlocks; }
 
-BlockData* Chunk::getData(const Point3i &bp)
-{
-  int bi = mIndexer.index(bp);
-  auto iter = mFluids.find(bi);
-  if(iter != mFluids.end())
-    { return iter->second; }
-  else
-    { return nullptr; }
-}
+// BlockData* Chunk::getData(const Point3i &bp)
+// {
+//   int bi = mIndexer.index(bp);
+//   auto iter = mFluids.find(bi);
+//   if(iter != mFluids.end())
+//     { return iter->second; }
+//   else
+//     { return nullptr; }
+// }
 
 /*
 FluidData& Chunk::getFluid(int bx, int by, int bz)
@@ -66,12 +66,13 @@ FluidData& Chunk::getFluid(const Point3i &bp)
 { return mFluids[mIndexer.index(bp)].data; }
 */
 
-bool Chunk::setBlock(int bx, int by, int bz, block_t type, BlockData *data)
+bool Chunk::setBlock(int bx, int by, int bz, block_t type)//, BlockData *data)
 {
   const int bi = mIndexer.index(bx, by, bz);
-  Block &b = mBlocks[bi];
-  if((type != block_t::NONE) != (b.type != block_t::NONE))
+  block_t &b = mBlocks[bi];
+  if((type != block_t::NONE) != (b != block_t::NONE))
     {
+      /*
       auto fIter = mFluids.find(bi);
       if(fIter != mFluids.end())
         {
@@ -91,28 +92,29 @@ bool Chunk::setBlock(int bx, int by, int bz, block_t type, BlockData *data)
           mNumBytes += data->dataSize();
           mFluids.emplace(bi, reinterpret_cast<FluidData*>(data->copy()));
         }
-      
-      b.type = type;
-      if(b.type != block_t::NONE)
+      */
+      b = type;
+      if(b != block_t::NONE)
         { mNumBlocks++; }
       return true;
     }
   else
     { return false; }
 }
-bool Chunk::setBlock(const Point3i &bp, block_t type, BlockData *data)
+bool Chunk::setBlock(const Point3i &bp, block_t type)//, block_tData *data)
 {
-  return setBlock(bp[0], bp[1], bp[2], type, data);
+  return setBlock(bp[0], bp[1], bp[2], type);//, data);
 }
+
 /*
 bool Chunk::setFluid(int bx, int by, int bz, block_t type, const FluidData *data)
 {
   const int bi = mIndexer.index(bx, by, bz);
-  Block &b = mBlocks[bi];
+  block_t &b = mBlocks[bi];
   if((type != block_t::NONE) != (b.type != block_t::NONE))
     {
       b.type = type;
-      if(!isFluidBlock(b))
+      if(!isFluidblock_t(b))
         {
           mNumBlocks++;
           mNumBytes += FluidData::dataSize;
@@ -136,17 +138,17 @@ bool Chunk::setFluid(const Point3i &bp, block_t type, const FluidData *data)
 */
 
 /*
-void Chunk::setData(const std::array<Block, Chunk::totalSize> &data)
+void Chunk::setData(const std::array<block_t, Chunk::totalSize> &data)
 {
   reset();
   mBlocks = data;
   for(int bi = 0; bi < totalSize; bi++)
     {
-      Block &b = mBlocks[bi];
+      block_t &b = mBlocks[bi];
       if(b.type != block_t::NONE)
         {
           mNumBlocks++;
-          if(isFluidBlock(b.type))
+          if(isFluidblock_t(b.type))
             {
               mNumBytes += b.data->dataSize();
               mFluids.emplace(bi, reinterpret_cast<FluidData*>(b.data));
@@ -159,53 +161,54 @@ void Chunk::setData(const std::array<Block, Chunk::totalSize> &data)
 void Chunk::reset()
 {
   mNumBlocks = 0;
-  mNumBytes = totalSize * Block::dataSize;
+  //mNumBytes = totalSize * block_t::dataSize;
   for(auto &b : mBlocks)
-    { b = Block(); }
-  for(auto &f : mFluids)
-    { delete f.second; }
-  mFluids.clear();
+    { b = block_t(); }
+  //for(auto &f : mFluids)
+  //{ delete f.second; }
+  //mFluids.clear();
 }
 
-std::unordered_map<int, FluidData*> Chunk::getFluids()
-{
-  return mFluids;
-}
+// std::unordered_map<int, FluidData*> Chunk::getFluids()
+// {
+//   return mFluids;
+// }
 
 bool Chunk::step(bool evap)
 {
-  bool result = false;
-  std::vector<int> gone;
-  for(auto &f : mFluids)
-    {
-      if(evap)
-        {
-          result |= f.second->step();
-        }
-      if(f.second->gone())
-        { gone.push_back(f.first); }
-    }
-  for(auto &f : gone)
-    {
-      result = true;
-      mNumBlocks--;
-      mBlocks[f].type = block_t::NONE;
-      mNumBytes -= mFluids[f]->dataSize();
-      mFluids.erase(f);
-    }
-  return result;
+  // bool result = false;
+  // std::vector<int> gone;
+  // for(auto &f : mFluids)
+  //   {
+  //     if(evap)
+  //       {
+  //         result |= f.second->step();
+  //       }
+  //     if(f.second->gone())
+  //       { gone.push_back(f.first); }
+  //   }
+  // for(auto &f : gone)
+  //   {
+  //     result = true;
+  //     mNumBlocks--;
+  //     mBlocks[f].type = block_t::NONE;
+  //     // mNumBytes -= mFluids[f]->dataSize();
+  //     // mFluids.erase(f);
+  //   }
+  return false;
 }
 
 // TODO: Run length encoding
 int Chunk::serialize(std::vector<uint8_t> &dataOut) const
 {
-  dataOut.resize(mNumBytes);
+  dataOut.resize(totalSize * sizeof(block_t));//mNumBytes);
   int offset = 0;
   for(int bi = 0; bi < totalSize; bi++)
     {
-      const Block &block = mBlocks[bi];
-      offset += block.serialize(&dataOut[offset]);
-
+      std::memcpy((void*)&dataOut[offset], (void*)&mBlocks[bi], Block::dataSize);
+      offset += Block::dataSize;
+      
+      /*
       if(isFluidBlock(block.type))
         {
           auto iter = mFluids.find(bi);
@@ -214,6 +217,7 @@ int Chunk::serialize(std::vector<uint8_t> &dataOut) const
               offset += reinterpret_cast<FluidData*>(iter->second)->serialize(&dataOut[offset]);
             }
         }
+      */
     }
   return offset;
 }
@@ -224,19 +228,20 @@ void Chunk::deserialize(const std::vector<uint8_t> &dataIn)
   int offset = 0;
   for(int bi = 0; bi < totalSize; bi++)
     {
-      Block &block = mBlocks[bi];
-      block.deserialize(&dataIn[offset], Block::dataSize);
-      if(block.type != block_t::NONE)
+      std::memcpy((void*)&mBlocks[bi], (void*)&dataIn[offset], sizeof(block_t));
+      if(mBlocks[bi] != block_t::NONE)
         { mNumBlocks++; }
       offset += Block::dataSize;
-      
-      if(isFluidBlock(block.type))
+
+      /*
+      if(isFluidBlock(block))
         {
           FluidData *data = new FluidData(&dataIn[offset]);
           mNumBytes += data->dataSize();
           offset += data->dataSize();
           mFluids.emplace(bi, data);
         }
+      */
     }
   mDirty = true;
 }

@@ -2,16 +2,12 @@
 #include "logging.hpp"
 #include "shader.hpp"
 #include "geometry.hpp"
-
-#define DRAG 0.98f
-
-//static const Vector3f PLAYER_SIZE{2.0, 2.0, 8.0};
-static const Vector3f PLAYER_SIZE{0.9, 0.9, 1.9};
-
+#include "params.hpp"
+#include "fluid.hpp"
 
 
 // pos should be the BOTTOM-CENTER of the player's bounding box.
-Camera::Camera(Vector3f pos, Vector3f forward, Vector3f up, Vector3f eyeOffset)
+Camera::Camera(Point3f pos, Vector3f forward, Vector3f up, Vector3f eyeOffset)
   : cCollidable(pos + Vector3f{0,0,PLAYER_SIZE[2]*0.5f}, PLAYER_SIZE),
     mEyeOffset(eyeOffset)
 {
@@ -60,20 +56,15 @@ Matrix4 Camera::getProjection() const
 
 
 
-Player::Player(QObject *qparent, Vector3f pos, Vector3f forward, Vector3f up, World *world,
+Player::Player(Point3f pos, Vector3f forward, Vector3f up, World *world,
                Vector3f eyeOffset, float reach )
   : Camera(pos, forward, up, eyeOffset), mWorld(world), mReach(reach),
     mHighlightModel("./res/highlight.obj")
-{
-  Point3f ppos = mBox.center();
-  //mWorld->setCenter(Point3i{std::floor(ppos[0]), std::floor(ppos[1]), std::floor(ppos[2])} / 16);
-  
-  mWireShader = new Shader(qparent);
-}
+{ }
 
 Player::~Player()
 {
-  delete mWireShader;
+  
 }
 
 
@@ -107,13 +98,11 @@ CompleteBlock Player::selectedBlock()
 
 bool Player::pickUp()
 {
-  if(mSelectedType != block_t::NONE)
+  if(mSelectedBlock.type != block_t::NONE)
     {
-      LOGD("PLAYER GOT BLOCK! --> %d", (int)mSelectedType);
-      onPickup(mSelectedType);
-      std::cout << "SP: " << mSelectedPos << "\n";
+      LOGI("Player picked up block! --> %d", (int)mSelectedBlock.type);
+      onPickup(mSelectedBlock.type);
       mWorld->setBlock(mSelectedPos, block_t::NONE);
-      mSelectedType = block_t::NONE;
     }
   
   return true;
@@ -124,71 +113,61 @@ void Player::place()
   CompleteBlock block = onPlace();
   if(block.type != block_t::NONE)
     {
-      if(mSelectedType != block_t::NONE)
+      if(mSelectedBlock.type != block_t::NONE)
 	{
 	  if(!mBox.collidesEdge(cBoundingBox(mSelectedPos + mSelectedFace + Vector3f{0.5, 0.5, 0.5},
                                              Vector3f{1, 1, 1} )))
 	    {
-	      LOGD("PLAYER PLACED BLOCK at: ");
-	      std::cout << mSelectedPos << " (face " << mSelectedFace << ")\n";
+	      LOGI("Player placed block! --> %d", (int)mSelectedBlock.type);
 	      mWorld->setBlock(mSelectedPos + mSelectedFace, block.type, block.data);
 	    }
 	}
     }
 }
-bool Player::initGL()
+bool Player::initGL(QObject *qParent)
 {
-  LOGD("PLAYER INIT GL");
+  LOGI("Initializing player GL...");
+  LOGI("  Creating block highlight shader...");
+  mWireShader = new Shader(qParent);
   if(!mWireShader->loadProgram("./shaders/wireframe.vsh", "./shaders/wireframe.fsh",
 			       {"posAttr", "normalAttr", "texCoordAttr"}, {"pvm"}))
     {
-      LOGE("Wireframe shader failed to load!");
+      LOGE("  Block highlight shader failed to load!");
       return false;
     }
+  LOGI("  Initializing block highlight model...");
   mWireShader->bind();
   mHighlightModel.initGL(mWireShader);
   mWireShader->release();
-  LOGD("PLAYER DONE INIT GL");
+  LOGI("Player GL initialized.");
   return true;
 }
 void Player::cleanupGL()
 {
+  LOGI("Uninitializing player GL...");
+  LOGI("  Uninitializing block highlight model...");
   mHighlightModel.cleanupGL();
+  LOGI("  Deleting block highlight shader...");
+  delete mWireShader;
+  LOGI("Player GL uninitialized.");
 }
 
 void Player::render(Matrix4 pvm)
 {
-  //LOGD("PLAYER RENDER");
-
-  //std::cout << "EYE: " << getEye() << ", UP: " << mUp << ", forward: " << mForward << "\n";
-  
   Vector3f selectRay = (mSelectMode ? mSelectRay : getEye());
   if(!mWorld->rayCast(mBox.center() + mEyeOffset, selectRay, mReach,
 		      mSelectedBlock, mSelectedPos, mSelectedFace ))
-    {
-      //LOGD("PLAYER NO BLOCK");
-      mSelectedType = block_t::NONE;
-      mSelectedBlock = {block_t::NONE, nullptr};
-    }
-  else
-    {
-      mSelectedType = mSelectedBlock.type;
-    }
-
+    { mSelectedBlock = {block_t::NONE, nullptr}; }
   
-  if(mSelectedBlock.type != block_t::NONE) //mSelectedType != block_t::NONE)
+  if(mSelectedBlock.type != block_t::NONE)
     {
-      //LOGD("PLAYER RENDERING WIRE");
       mWireShader->bind();
       mWireShader->setUniform("pvm", pvm);
-      //LOGI("Selected block --> (%d, %d, %d)", mSelectedPos[0], mSelectedPos[1], mSelectedPos[2]);
       mHighlightModel.render(mWireShader,
                              pvm*matTranslate(mSelectedPos[0], mSelectedPos[1], mSelectedPos[2]));
-      //std::cout << "HIGHLIGHTED: " << mHighlighted << "\n";
       mWireShader->release();
     }
 }
-
 
 void Player::addForce(float right, float forward)
 {
@@ -216,12 +195,10 @@ Point3i Player::getCollisions() const
 void Player::update(double dt)
 {
   onUpdate(dt);
-  
   Vector3f forward = mFrustum.getForward();
   Vector3f right = mFrustum.getRight();
   Vector3f up = mFrustum.getUp();
 
-  
   mAccel = Vector3f{right[0], right[1], 0.0}  * mMoveForce[0] + Vector3f{forward[0], forward[1], 0} * mMoveForce[1] + up * mMoveForce[2] - mVel*800.0f*dt;
   mVel += mAccel * dt;
   
@@ -246,7 +223,10 @@ void Player::update(double dt)
     {
       if(mIsGrounded[i] && ((dPos[i] <= 0) != (mGroundedDir[i] <= 0)))
         { // unground if direction reversed (away from ground)
-          std::cout << (i==0 ? "X" : (i==1 ? "Y" : "Z")) << " no longer grounded: " << mIsGrounded << " : " << mGrounded << " : dPos: " << dPos << ", gdir: " << mGroundedDir << "\n";
+          std::cout << (i==0 ? "X" : (i==1 ? "Y" : "Z"))
+                    << " no longer grounded: " << mIsGrounded << " : "
+                    << mGrounded << " : dPos: " << dPos
+                   << ", gdir: " << mGroundedDir << "\n";
           mIsGrounded[i] = false;
           mGrounded[i] = 0;
         }
@@ -296,8 +276,6 @@ void Player::update(double dt)
               else
                 { bMax[i2] = mGrounded[i2] - 1; }
             }
-          //std::cout << (i==0 ? "X" : (i==1 ? "Y" : "Z")) << " grounded -- checking: "
-          //          << bMin << " : " << bMax << "\n";
           
 	  bool hit = false;
 	  for(bPos[i1] = bMin[i1]; bPos[i1] <= bMax[i1] && !hit; bPos[i1]++)
@@ -336,9 +314,6 @@ void Player::update(double dt)
                 { bMax[i2] = mGrounded[i2] - 1; }
             }
 
-          // std::cout << (i==0 ? "X" : (i==1 ? "Y" : "Z")) << " not grounded -- checking: "
-          //           << bMin << " : " << bMax << "\n";
-          
 	  bool hit = false;
 	  for(bPos[i1] = bMin[i1]; bPos[i1] <= bMax[i1] && !hit; bPos[i1]++)
             for(bPos[i2] = bMin[i2]; bPos[i2] <= bMax[i2] && !hit; bPos[i2]++)
@@ -353,7 +328,6 @@ void Player::update(double dt)
                     center[i] = bPos[i] + ((mGroundedDir[i] < 0) ?
                                            (mBox.size()[i] / 2.0f + 1) :
                                            (-mBox.size()[i] / 2.0f));
-                    //std::cout << (i==0 ? "X" : (i==1 ? "Y" : "Z")) << " now grounded at: " << bPos[i] << ", center: " << center << "\n";
                     break;
                   }
               }
@@ -361,84 +335,49 @@ void Player::update(double dt)
     }
   mBox.setCenter(center);
 
-  Point3i chunkPos = World::chunkPos(Point3i{std::floor(center[0]),
-                                             std::floor(center[1]),
-                                             std::floor(center[2])});
-  //std::cout << "WORLD CENTER: " << mWorld->getCenter() << ", PLAYER POS: " << center << "\n";
-  
+  Point3i chunkPos = World::chunkPos(Point3i{(int)center[0],(int)center[1],(int)center[2]});
   static Point3i lastChunkPos = chunkPos;
   if(chunkPos != lastChunkPos)
     {
-      std::cout << "Moving center from " << lastChunkPos << " to " << chunkPos << "\n";
       mWorld->setCenter(chunkPos);
       lastChunkPos = chunkPos;
     }
   
-  mVel[0] *= DRAG;
-  mVel[1] *= DRAG;
-
+  mVel[0] *= PLAYER_DRAG;
+  mVel[1] *= PLAYER_DRAG;
   setPos(mBox.center());
 }
 
 
 
-
-
-
-
-#define GRAVITY 5000.0f
-
-
-
-
-
-GodPlayer::GodPlayer(QObject *qparent, Vector3f pos, Vector3f forward, Vector3f up, World *world)
-  : Player(qparent, pos, forward, up, world, Vector3f{0,0,0}, 256.0f) // far reach
-{
-  // fill up inventory supply of blocks
-  //mInventory.resize(100, block_t::STONE);
-}
+GodPlayer::GodPlayer(Point3f pos, Vector3f forward, Vector3f up, World *world)
+  : Player(pos, forward, up, world, Vector3f{0,0,0}, 256.0f) // far reach
+{ }
 
 void GodPlayer::onUpdate(double dt)
-{ // add force of gravity
-  //mMoveForce[2] = -GRAVITY*dt;
-}
+{ }
 
 void GodPlayer::setPlaceBlock(block_t type, BlockData *data)
 {
-  LOGD("PLAYER SETTING PLACE BLOCK %s", toString(type).c_str());
   mPlaceBlock = {type, data ? data->copy() : nullptr};
-  LOGD("DONE");
 }
 void GodPlayer::nextPlaceBlock()
 {
   mPlaceBlock.type = (block_t)(((int)mPlaceBlock.type + 1) % (int)simple_t::END);
-  LOGD("Selected tool: %d", (int)mPlaceBlock.type);
 }
 void GodPlayer::prevPlaceBlock()
 {
   mPlaceBlock.type = (block_t)(((int)mPlaceBlock.type - 1 + (int)simple_t::END) % (int)simple_t::END);
-  LOGD("Selected tool: %d", (int)mPlaceBlock.type);
 }
 
 void GodPlayer::onPickup(block_t type)
-{
-
-}
+{ /* do nothing 'cause you're a god */ }
 CompleteBlock GodPlayer::onPlace()
-{
-  return mPlaceBlock;
-}
+{ return mPlaceBlock; }
 
-
-
-
-
-
-#define EYE_HEIGHT 1.6f
-
-FpsPlayer::FpsPlayer(QObject *qparent, Vector3f pos, Vector3f forward, Vector3f up, World *world)
-  : Player(qparent, pos, forward, up, world, Vector3f{0, 0, EYE_HEIGHT - PLAYER_SIZE[2]*0.5f}, 4.0f) // short reach
+FpsPlayer::FpsPlayer(Point3f pos, Vector3f forward, Vector3f up, World *world)
+  : Player(pos, forward, up, world,
+           Vector3f{0, 0, PLAYER_EYE_HEIGHT - PLAYER_SIZE[2]*0.5f}, 4.0f) // short reach
 {
   
 }
@@ -448,15 +387,9 @@ void FpsPlayer::jump(float strength)
 {
   if(mIsGrounded[2])
     {
-      std::cout << "Grounded!\n";
-      std::cout << "Jumping --> accel: " << mAccel << ", vel: " << mVel << ", moveforce: " << mMoveForce << "\n";
       mVel[2] = strength*GRAVITY / 80;
       mIsGrounded[2] = false;
       mGrounded[2] = 0;
-    }
-  else
-    {
-      std::cout << "Not grounded!\n";
     }
 }
 

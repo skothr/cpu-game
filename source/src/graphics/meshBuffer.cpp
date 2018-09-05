@@ -102,13 +102,13 @@ void cMeshBuffer::uploadData(const MeshData &data)
   //mVao->bind();
   mVbo->bind();
   mIbo->bind();
-  mVbo->allocate(data.vertices.data(), sizeof(cSimpleVertex)*data.vertices.size());
-  mIbo->allocate(data.indices.data(), sizeof(unsigned int)*data.indices.size());
+  mVbo->allocate(data.vertices().data(), sizeof(cSimpleVertex)*data.vertices().size());
+  mIbo->allocate(data.indices().data(), sizeof(unsigned int)*data.indices().size());
   mVbo->release();
   mIbo->release();
   //mVao->release();
   
-  mNumDraw = data.indices.size();
+  mNumDraw = data.indices().size();
 }
 
 void cMeshBuffer::detachData()

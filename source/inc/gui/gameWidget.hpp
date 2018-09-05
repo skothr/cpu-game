@@ -3,61 +3,76 @@
 
 #include <mutex>
 #include <QVector2D>
+#include <QOpenGLWidget>
 
-#include "glWidget.hpp"
 #include "indexing.hpp"
 #include "chunk.hpp"
 #include "vector.hpp"
 #include "voxelEngine.hpp"
 
-class QTimer;
+class ControlInterface;
+class PauseWidget;
+class Overlay;
 
-class cGameWidget : public GlWidget
+
+class QTimer;
+class QStackedLayout;
+class QGridLayout;
+
+class GameWidget : public QOpenGLWidget
 {
   Q_OBJECT
 public:
-  cGameWidget(QWidget *parent = nullptr, int numThreads = 1,
-	      const std::string &worldName = "", uint32_t seed = 0 );
-  virtual ~cGameWidget();
+  GameWidget(QWidget *parent = nullptr);
+  virtual ~GameWidget();
 
   VoxelEngine* getEngine();
   void captureMouse(bool capture);
   bool getMouseCaptured() const;
-  
   void setTool(block_t type);
-
+  
+  void start();
+  void stop();
+  void pause(bool status);
 
 signals:
-  void posChanged(Point3f player, Point3i collisions, Point3i chunk);
-  void blockInfo(block_t type, float light);
-
+  void paused();
+  void resumed();
+  void quit();
+             
 public slots:
-  void sendPos();  
+  void updateInfo();
+  void resume();
+
 protected:
-  virtual void glInit() override;
-  virtual void render() override;
-  virtual void onResize(int w, int h) override;
-  
-  void wheelEvent(QWheelEvent *event);
-  void resizeEvent(QResizeEvent *event);
+  void initializeGL();
+  void paintGL();
+  void resizeGL(int w, int h);
+
+  void render();
 
   void mousePressEvent(QMouseEvent *event);
   void mouseReleaseEvent(QMouseEvent *event);
   void mouseMoveEvent(QMouseEvent *event);
   void keyPressEvent(QKeyEvent *event);
   void keyReleaseEvent(QKeyEvent *event);
+  void wheelEvent(QWheelEvent *event);
 
-  void renderUpdate();
-  
 private:
   bool mMouseDown = false;
   bool mMouseCaptured = false;
   QPoint mMousePos;
   
-  QTimer *mPosDisplay = nullptr;
+  QTimer *mInfoTimer = nullptr;
   QTimer *mRenderTimer = nullptr;
   VoxelEngine *mEngine = nullptr;
-  Indexer<Chunk::sizeX, Chunk::sizeY, Chunk::sizeZ> mIndexer;
+  
+  QStackedLayout *mOverlayLayout = nullptr;
+  Overlay *mPlayerOverlay = nullptr;
+  Overlay *mChunkOverlay = nullptr;
+  PauseWidget *mPause = nullptr;
+  ControlInterface *mControl = nullptr;
+  QGridLayout *mMainLayout = nullptr;
 
 };
 

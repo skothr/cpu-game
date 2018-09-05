@@ -164,77 +164,85 @@ inline block_t fluidType(int index)
 class BlockData
 {
 public:
-  BlockData(bool goneVal)
-    : gone(goneVal)
-  { }
+BlockData(bool goneVal)
+: gone(goneVal)
+{ }
 
-  virtual BlockData* copy() const = 0;
-  virtual int dataSize() const = 0;
-  virtual bool step() { }
-  virtual int serialize(uint8_t *dataOut) const = 0;
-  virtual int deserialize(const uint8_t *dataOut, int bytes) = 0;
-  bool gone;
+virtual BlockData* copy() const = 0;
+virtual int dataSize() const = 0;
+virtual bool step() { }
+virtual int serialize(uint8_t *dataOut) const = 0;
+virtual int deserialize(const uint8_t *dataOut, int bytes) = 0;
+bool gone;
   
 protected:
 };
 */
 
-// Represents every block in a chunk at the top level.
-class Block
+ /*
+ // Represents every block in a chunk at the top level.
+ class Block
+ {
+ public:
+ Block(block_t t = block_t::NONE)
+ : type(t)
+ { }
+ Block(const Block &other)
+ : Block(other.type)//, other.data ? other.data->copy() : nullptr)
+ {}
+ Block& operator=(const Block &other)
+ {
+ type = other.type;
+ //data = other.data ? other.data->copy() : nullptr;
+ return *this;
+ }
+  
+ static const int dataSize = sizeof(block_t);// + sizeof(int);
+  
+ block_t type;
+ //BlockData *data;
+ //int dataIndex; // index to data, if needed
+  
+ // void step()
+ // {
+ //   if(data)
+ //     { data->step(); }
+ // }
+  
+ // modifies pointer and returns leftover bits in pointed-to byte
+ int serialize(uint8_t *dataOut) const;
+ void deserialize(const uint8_t *dataIn, int bytes);
+ };
+ */
+
+namespace Block
 {
-public:
-  Block(block_t t = block_t::NONE)
-    : type(t)
-  { }
-  Block(const Block &other)
-    : Block(other.type)//, other.data ? other.data->copy() : nullptr)
-  {}
-  Block& operator=(const Block &other)
-  {
-    type = other.type;
-    //data = other.data ? other.data->copy() : nullptr;
-    return *this;
-  }
-  
-  static const int dataSize = sizeof(block_t);// + sizeof(int);
-  
-  block_t type;
-  //BlockData *data;
-  //int dataIndex; // index to data, if needed
-  
-  // void step()
-  // {
-  //   if(data)
-  //     { data->step(); }
-  // }
-  
-  // modifies pointer and returns leftover bits in pointed-to byte
-  int serialize(uint8_t *dataOut) const;
-  void deserialize(const uint8_t *dataIn, int bytes);
+  static const int dataSize = sizeof(block_t);
 };
 
 class BlockData // base class for block data (e.g. fluid data)
 {
 public:
-  virtual int dataSize() const = 0;
+  //virtual int dataSize() const = 0;
   virtual BlockData* copy() const = 0;
 };
 
+
 struct CompleteBlock
 {
-  block_t type;
-  BlockData *data;
+  block_t type = block_t::NONE;
+  BlockData *data = nullptr;
 };
 
 /*
-class cComplexBlock : public Block
-{
-public:
+  class cComplexBlock : public Block
+  {
+  public:
   cComplexBlock(block_t t = block_t::NONE, blockSide_t sides = blockSide_t::ALL,
-	 uint8_t light = DEFAULT_LIGHT_LEVEL )
-    : type(t), activeSides(sides), lightLevel(light)
+  uint8_t light = DEFAULT_LIGHT_LEVEL )
+  : type(t), activeSides(sides), lightLevel(light)
   { }
-};
+  };
 */
 
 

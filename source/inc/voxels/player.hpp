@@ -12,11 +12,13 @@
 
 #include <queue>
 
+class Shader;
+class QObject;
 
 class Camera : public cCollidable
 {
 public:
-  Camera(Vector3f pos, Vector3f forward, Vector3f up, Vector3f eyeOffset);
+  Camera(Point3f pos, Vector3f forward, Vector3f up, Vector3f eyeOffset);
 
   void rotate(float pitch, float yaw);
   Matrix4 getView() const;
@@ -39,17 +41,17 @@ protected:
 
 
 // adds functionality for picking and placing blocks.
-class Shader;
 class Player : public Camera
 {
 public:
-  Player(QObject *qparent, Vector3f pos, Vector3f forward, Vector3f up, World *world, Vector3f eyeOffset, float reach);
+  Player(Point3f pos, Vector3f forward, Vector3f up, World *world,
+         Vector3f eyeOffset, float reach );
   ~Player();
   
   void setSelectMode(bool mode);
   void select(const Point2f &pos, const Matrix4 &proj);
-
   CompleteBlock selectedBlock();
+  //BlockData* selectedBlockData();
   
   bool pickUp();
   void place();
@@ -62,7 +64,7 @@ public:
   virtual void update(double dt);
   Point3i getCollisions() const;
   
-  virtual bool initGL();
+  virtual bool initGL(QObject *qParent);
   virtual void cleanupGL();
   virtual void render(Matrix4 pvm);
   
@@ -71,13 +73,12 @@ protected:
   float mReach;
   
   bool mSelectMode = false; // whether to select with free mouse instead of rotating
-  Point2f mSelectPos; // [-1, 1]
+  Point2f mSelectPos; // screen-space coordinates ([-1, 1])
   Vector3f mSelectRay;
 
   Shader *mWireShader = nullptr;
   cModelObj mHighlightModel;
-  CompleteBlock mSelectedBlock;
-  block_t mSelectedType = block_t::NONE;
+  CompleteBlock mSelectedBlock = {block_t::NONE, nullptr};
   Point3i mSelectedPos;
   Vector3i mSelectedFace;
   
@@ -91,7 +92,6 @@ protected:
   virtual void onUpdate(double dt) {}
   virtual void onPickup(block_t type) {}
   virtual CompleteBlock onPlace() { return CompleteBlock{block_t::NONE, nullptr}; }
-  
 };
 
 
@@ -100,42 +100,34 @@ protected:
 class GodPlayer : public Player
 {
 public:
-  GodPlayer(QObject *qparent, Vector3f pos, Vector3f forward, Vector3f up, World *world);
+  GodPlayer(Point3f pos, Vector3f forward, Vector3f up, World *world);
 
   void setPlaceBlock(block_t type, BlockData *data);
   void nextPlaceBlock();
   void prevPlaceBlock();
   
 protected:
-  CompleteBlock mPlaceBlock;
+  CompleteBlock mPlaceBlock = {block_t::NONE, nullptr};
   
   virtual void onUpdate(double dt) override;
   virtual void onPickup(block_t type) override;
   virtual CompleteBlock onPlace() override;
 };
 
-
-
-
-
-
 class FpsPlayer : public Player
 {
 public:
-  FpsPlayer(QObject *qparent, Vector3f pos, Vector3f forward, Vector3f up, World *world);
+  FpsPlayer(Point3f pos, Vector3f forward, Vector3f up, World *world);
 
   void jump(float strength);
 
-
 protected:
   std::queue<block_t> mInventory;
-  block_t mNextBlock;
+  block_t mNextBlock = block_t::NONE;
 
   virtual void onUpdate(double dt) override;
   virtual void onPickup(block_t type) override;
-  virtual CompleteBlock onPlace() override;
-
-  
+  virtual CompleteBlock onPlace() override;  
 };
 
 #endif // PLAYER_HPP

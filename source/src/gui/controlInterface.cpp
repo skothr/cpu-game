@@ -1,5 +1,7 @@
 #include "controlInterface.hpp"
 #include "voxelEngine.hpp"
+#include "button.hpp"
+#include "fluid.hpp"
 
 #include <iostream>
 
@@ -15,7 +17,7 @@
 #include <QLabel>
 
 
-cControlInterface::cControlInterface(VoxelEngine *engine, QWidget *parent)
+ControlInterface::ControlInterface(VoxelEngine *engine, QWidget *parent)
   : QWidget(parent), mEngine(engine), mWorld(engine->getWorld())
 {
   mMainLayout = new QGridLayout(this);
@@ -68,71 +70,78 @@ cControlInterface::cControlInterface(VoxelEngine *engine, QWidget *parent)
   connect(mControlTabs, SIGNAL(currentChanged(int)), mTabStack, SLOT(setCurrentIndex(int)));
 }
 
-void cControlInterface::collapse()
+void ControlInterface::collapse()
 {
   mTabStackWidget->hide();
 }
 
-void cControlInterface::expand()
+void ControlInterface::expand()
 {
   mTabStackWidget->show();
 }
 
-void cControlInterface::setTool(int id, bool checked)
+void ControlInterface::setTool(int id, bool checked)
 {
   if(checked)
     {
       mTool = (block_t)id;
-      if(id < (int)simple_t::END)
+      if(isSimpleBlock(mTool))
         {
           mEngine->setTool(mTool, nullptr);
         }
-      else if(id < (int)fluid_t::END)
+      else if(isFluidBlock(mTool))
         {
           LOGD("SETTING TOOL: %s (%d)", toString(mTool).c_str(), (int)mFluidLevel);
-          BlockData *data = new FluidData(gFluidEvap[fluidIndex((block_t)id)], mFluidLevel);
+          BlockData *data = new Fluid(mTool, gFluidEvap[mTool], mFluidLevel);
           mEngine->setTool(mTool, data);
           delete data;
         }
     }
 }
-void cControlInterface::setLightLevel(int level)
+void ControlInterface::setLightLevel(int level)
 {
   LOGD("SETTING LIGHT LEVEL: %d", (int)level);
   mEngine->setLightLevel(level);
 }
-void cControlInterface::setWireframe(int wireframe)
+void ControlInterface::setWireframe(int wireframe)
 {
   mEngine->setWireframe(wireframe != 0);
 }
-void cControlInterface::setDebug(int debug)
+void ControlInterface::setDebug(int debug)
 {
   mEngine->setDebug(debug != 0);
 }
-void cControlInterface::setFluidSim(int on)
+void ControlInterface::clearFluids()
+{
+  mWorld->clearFluids();
+}
+void ControlInterface::setFluidSim(int on)
 {
   mWorld->setFluidSim(on != 0);
 }
-void cControlInterface::setFluidEvap(int on)
+void ControlInterface::setFluidEvap(int on)
 {
   mWorld->setFluidEvap(on != 0);
 }
-void cControlInterface::setChunkRadiusXY(int radius)
+void ControlInterface::setChunkRadiusX(int radius)
 {
   Vector3i rad = mWorld->getRadius();
   rad[0] = radius;
+  mWorld->setRadius(rad);
+}
+void ControlInterface::setChunkRadiusY(int radius)
+{
+  Vector3i rad = mWorld->getRadius();
   rad[1] = radius;
   mWorld->setRadius(rad);
 }
-
-void cControlInterface::setChunkRadiusZ(int radius)
+void ControlInterface::setChunkRadiusZ(int radius)
 {
   Vector3i rad = mWorld->getRadius();
   rad[2] = radius;
   mWorld->setRadius(rad);
 }
-
-void cControlInterface::setFluidLevel(int level)
+void ControlInterface::setFluidLevel(int level)
 {
   std::cout << level << "\n";
   mFluidLevel = (float)level / 255.0f;
@@ -141,19 +150,25 @@ void cControlInterface::setFluidLevel(int level)
   if(isFluidBlock(mTool))
     {
       LOGD("SETTING TOOL: %s (%f)", toString(mTool).c_str(), mFluidLevel);
-      BlockData *data = new FluidData(gFluidEvap[fluidIndex((block_t)mTool)], mFluidLevel);
+      BlockData *data = new Fluid(mTool, gFluidEvap[mTool], mFluidLevel);
       mEngine->setTool(mTool, data);
       delete data;
     }
 }
 
-QGroupBox* cControlInterface::makeMaterialGroup()
+void ControlInterface::initRadius(const Vector3i &rad)
+{
+  mXSlider->setValue(rad[0]);
+  mYSlider->setValue(rad[1]);
+  mZSlider->setValue(rad[2]);
+}
+
+QGroupBox* ControlInterface::makeMaterialGroup()
 {
   mMaterialGroup = new QButtonGroup(this);
   QGroupBox *group = new QGroupBox("Materials");
   QVBoxLayout *vbox = new QVBoxLayout();
   QHBoxLayout *hbox = new QHBoxLayout();
-
               
   // simple group
   QVBoxLayout *svbox = new QVBoxLayout();
@@ -182,6 +197,10 @@ QGroupBox* cControlInterface::makeMaterialGroup()
       mMaterialGroup->addButton(r, b);
       vbox->addWidget(r);
     }
+  Button *clearBtn = new Button("Clear Fluids");
+  connect(clearBtn, SIGNAL(clicked()), this, SLOT(clearFluids()));
+  vbox->addWidget(clearBtn);
+  
   vbox->setMargin(20);
   vbox->setSpacing(0);
 
@@ -195,6 +214,7 @@ QGroupBox* cControlInterface::makeMaterialGroup()
   levelS->setTickPosition(QSlider::TicksBelow);
   levelS->setMinimum(0);
   levelS->setMaximum(255);
+  levelS->setValue(255);
   connect(levelS, SIGNAL(sliderMoved(int)), this, SLOT(setFluidLevel(int)));
 
   hbox2->addWidget(levelL);
@@ -208,14 +228,13 @@ QGroupBox* cControlInterface::makeMaterialGroup()
   return group;
 }
 
-QGroupBox* cControlInterface::makePhysicsGroup()
+QGroupBox* ControlInterface::makePhysicsGroup()
 {
   mPhysicsGroup = new QButtonGroup(this);
   QGroupBox *group = new QGroupBox("Physics");
   QGridLayout *grid = new QGridLayout();
   grid->setMargin(20);
   grid->setSpacing(0);
-
 
   QCheckBox *fluidSimCb = new QCheckBox("Fluid Physics");
   fluidSimCb->setChecked(true);
@@ -231,7 +250,7 @@ QGroupBox* cControlInterface::makePhysicsGroup()
 }
 
 
-QGroupBox* cControlInterface::makeLightGroup()
+QGroupBox* ControlInterface::makeLightGroup()
 {
   mLightGroup = new QButtonGroup(this);
   QGroupBox *group = new QGroupBox("Light");
@@ -250,32 +269,43 @@ QGroupBox* cControlInterface::makeLightGroup()
   grid->addWidget(lSlider,0,1,1,3);
   
   // Sliders to adjust chunk load radius
-  QLabel *xyLabel = new QLabel("X/Y Load Radius");
-  QSlider *xySlider = new QSlider(Qt::Horizontal);
-  xySlider->setTickInterval(1);
-  xySlider->setTickPosition(QSlider::TicksBelow);
-  xySlider->setMinimum(0);
-  xySlider->setMaximum(16);
-  xySlider->setValue(mWorld->getRadius()[0]);
-  connect(xySlider, SIGNAL(sliderMoved(int)), this, SLOT(setChunkRadiusXY(int)));
-  grid->addWidget(xyLabel, 0,7,1,1);
-  grid->addWidget(xySlider,0,8,1,3);
+  QLabel *xLabel = new QLabel("X Load Radius");
+  mXSlider = new QSlider(Qt::Horizontal);
+  mXSlider->setTickInterval(1);
+  mXSlider->setTickPosition(QSlider::TicksBelow);
+  mXSlider->setMinimum(0);
+  mXSlider->setMaximum(16);
+  mXSlider->setValue(mWorld->getRadius()[0]);
+  connect(mXSlider, SIGNAL(sliderMoved(int)), this, SLOT(setChunkRadiusX(int)));
+  grid->addWidget(xLabel, 0,7,1,1);
+  grid->addWidget(mXSlider,0,8,1,3);
+  
+  QLabel *yLabel = new QLabel("Y Load Radius");
+  mYSlider = new QSlider(Qt::Horizontal);
+  mYSlider->setTickInterval(1);
+  mYSlider->setTickPosition(QSlider::TicksBelow);
+  mYSlider->setMinimum(0);
+  mYSlider->setMaximum(16);
+  mYSlider->setValue(mWorld->getRadius()[0]);
+  connect(mYSlider, SIGNAL(sliderMoved(int)), this, SLOT(setChunkRadiusY(int)));
+  grid->addWidget(yLabel, 1,7,1,1);
+  grid->addWidget(mYSlider,1,8,1,3);
   
   QLabel *zLabel = new QLabel("Z Load Radius");
-  QSlider *zSlider = new QSlider(Qt::Horizontal);
-  zSlider->setTickInterval(1);
-  zSlider->setTickPosition(QSlider::TicksBelow);
-  zSlider->setMinimum(1);
-  zSlider->setMaximum(8);
-  zSlider->setValue(mWorld->getRadius()[2]);
-  connect(zSlider, SIGNAL(sliderMoved(int)), this, SLOT(setChunkRadiusZ(int)));
-  grid->addWidget(zLabel, 1,7,1,1);
-  grid->addWidget(zSlider,1,8,1,3);
+  mZSlider = new QSlider(Qt::Horizontal);
+  mZSlider->setTickInterval(1);
+  mZSlider->setTickPosition(QSlider::TicksBelow);
+  mZSlider->setMinimum(0);
+  mZSlider->setMaximum(8);
+  mZSlider->setValue(mWorld->getRadius()[2]);
+  connect(mZSlider, SIGNAL(sliderMoved(int)), this, SLOT(setChunkRadiusZ(int)));
+  grid->addWidget(zLabel, 2,7,1,1);
+  grid->addWidget(mZSlider,2,8,1,3);
   
   group->setLayout(grid);
   return group;
 }
-QGroupBox* cControlInterface::makeDebugGroup()
+QGroupBox* ControlInterface::makeDebugGroup()
 {
   mDebugGroup = new QButtonGroup(this);
   QGroupBox *group = new QGroupBox("Debug");

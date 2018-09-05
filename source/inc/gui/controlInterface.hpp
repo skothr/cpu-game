@@ -15,14 +15,16 @@ class QSlider;
 
 class VoxelEngine;
 
-class cControlInterface : public QWidget
+class ControlInterface : public QWidget
 {
   Q_OBJECT
 public:
-  cControlInterface(VoxelEngine *engine, QWidget *parent = nullptr);
+  ControlInterface(VoxelEngine *engine, QWidget *parent = nullptr);
 
   void collapse();
   void expand();
+  
+  void initRadius(const Vector3i &rad);
   
 signals:
     
@@ -31,10 +33,12 @@ protected slots:
   void setLightLevel(int level);
   void setWireframe(int wireframe);
   void setDebug(int debug);
+  void clearFluids();
   void setFluidSim(int on);
   void setFluidEvap(int on);
   void setFluidLevel(int level);
-  void setChunkRadiusXY(int radius);
+  void setChunkRadiusX(int radius);
+  void setChunkRadiusY(int radius);
   void setChunkRadiusZ(int radius);
 
 protected:
@@ -48,6 +52,10 @@ private:
   QTabBar *mControlTabs = nullptr;
   QWidget *mTabStackWidget = nullptr;
   QStackedLayout *mTabStack = nullptr;
+
+  QSlider *mXSlider = nullptr;
+  QSlider *mYSlider = nullptr;
+  QSlider *mZSlider = nullptr;
 
   // active material selection tab
   QWidget *mMaterialWidget = nullptr;
@@ -74,7 +82,7 @@ private:
   QGroupBox* makeDebugGroup();
 
   block_t mTool = block_t::NONE;
-  float mFluidLevel = 0.0f;
+  float mFluidLevel = 1.0f;
 };
 
 #endif // CONTROL_INTERFACE_HPP

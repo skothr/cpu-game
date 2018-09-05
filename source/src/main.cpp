@@ -54,8 +54,7 @@ int main(int argc, char *argv[])
       return 0;
     }
   QApplication app(argc, argv);
-  cMainWindow window(nullptr, numThreads, worldName, seed);
-  window.resize(1080, 1080);
+  MainWindow window; //, numThreads, worldName, seed);
   window.show();
   return app.exec();
 }

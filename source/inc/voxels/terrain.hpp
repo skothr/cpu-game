@@ -6,92 +6,74 @@
 #include <vector>
 #include <string>
 #include <ios>
+#include "FastNoise.h"
 
 #include "vector.hpp"
 #include "chunk.hpp"
 #include "indexing.hpp"
 
-enum class terrain_t : uint8_t
+enum class terrain_t : int8_t
   {
-   INVALID = 0,
-   DIRT_GROUND,
+   INVALID = -1,
+   DIRT_GROUND = 0,
+   PERLIN_WORLD,
    PERLIN,
-   PERLIN_CHUNK
+
+   COUNT
   };
 
-class PerlinNoise
+inline std::string toString(terrain_t t)
 {
-public:
-  PerlinNoise(uint32_t seed = 0);
-  ~PerlinNoise();
-
-
-  void setSeed(uint32_t seed);
-
-  inline double noise(double x, double y, double z)
-  {
-    int x2 = (int)std::floor(x) & 255;
-    int y2 = (int)std::floor(y) & 255;
-    int z2 = (int)std::floor(z) & 255;
-    x -= std::floor(x);
-    y -= std::floor(y);
-    z -= std::floor(z);
-    double u = fade(x), v = fade(y), w = fade(z);
-    int a = mVals[x2] + y2, aa = mVals[a] + z2, ab = mVals[a+1] + z2,
-      b = mVals[x2+1]+y2, ba = mVals[b] + z2, bb = mVals[b+1]+z2;
-    
-    return lerp(w, lerp(v, lerp(u, grad(mVals[aa  ], x, y, z),
-				grad(mVals[ba], x-1, y, z) ),
-			lerp(u, grad(mVals[ab], x, y-1, z), 
-			     grad(mVals[bb], x-1, y-1, z) )),
-		lerp(v, lerp(u, grad(mVals[aa+1], x, y, z-1),
-			     grad(mVals[ba+1], x-1, y, z-1) ),
-		     lerp(u, grad(mVals[ab+1], x, y-1, z-1),
-			  grad(mVals[bb+1], x-1, y-1, z-1) )));
-  }
-
-    
-private:
-  std::vector<int> mVals;
-  
-  inline double fade(double t)
-  { return t * t * t * (t * (t * 6 - 0x0F) + 10); }
-  inline double lerp(double t, double a, double b)
-  { return a + t * (b - a); }
-  inline double grad(int hash, double x, double y, double z)
-  {
-    int h = hash & 0x0F;
-    double u = (h < 8 ? x : y);
-    double v = (h < 4 ? y : (h == 12 || h == 14 ? x : z));
-    return ((h & 0x01) == 0 ? u : -u) + ((h & 0x02) == 0 ? v : -v);
-  }
-  
-  // inline int perlinNoise(int x, int y, float scale, float mag, float exp)
-  // {
-  //   return (int)(std::pow(()));
-  // }
-};
-
-
+  switch(t)
+    {
+    case terrain_t::DIRT_GROUND:
+      return "Dirt Ground";
+    case terrain_t::PERLIN:
+      return "Perlin";
+    case terrain_t::PERLIN_WORLD:
+      return "Perlin World";
+    default:
+      return "<INVALID>";
+    }
+}
+inline terrain_t terrainFromString(const std::string &str)
+{
+  if(str == "Dirt Ground")
+    {
+      return terrain_t::DIRT_GROUND;
+    }
+  else if(str == "Perlin")
+    {
+      return terrain_t::PERLIN;
+    }
+  else if(str == "Perlin World")
+    {
+      return terrain_t::PERLIN_WORLD;
+    }
+  else
+    { return terrain_t::INVALID; }
+}
 
 class TerrainGenerator
 {
 public:
   TerrainGenerator(uint32_t seed)
-    : mSeed(seed), mNoise(seed)
-  { }
+    : mSeed(seed)
+  {
+    mNoise.SetSeed(seed);
+  }
 
   void setSeed(uint32_t seed)
   {
     mSeed = seed;
-    mNoise.setSeed(mSeed);
+    mNoise.SetSeed(mSeed);
   }
   uint32_t getSeed() const { return mSeed; }
   
   void generate(const Point3i &chunkPos, terrain_t genType,
                      std::vector<uint8_t> &dataOut);
 private:
-  PerlinNoise mNoise;
+  FastNoise mNoise;
   uint32_t mSeed;
   Indexer<Chunk::sizeX, Chunk::sizeY, Chunk::sizeZ> mIndexer;
 };

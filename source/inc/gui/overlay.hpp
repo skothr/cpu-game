@@ -32,11 +32,11 @@ struct LabelDesc
 };
 
 
-class cOverlay : public QWidget
+class Overlay : public QWidget
 {
   Q_OBJECT
 public:
-  cOverlay(QWidget *parent, const std::vector<LabelDesc> &labels);
+  Overlay(QWidget *parent, const std::vector<LabelDesc> &labels);
 
   QLabel* getLabel(int i);
   

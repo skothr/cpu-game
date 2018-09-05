@@ -1,47 +1,46 @@
 #ifndef MAIN_WINDOW_HPP
 #define MAIN_WINDOW_HPP
 
-#include <QtGui>
 #include <QWidget>
 
 #include "vector.hpp"
 #include "block.hpp"
+#include "world.hpp"
 
 class QVBoxLayout;
 class QGridLayout;
-class cGameWidget;
-class cOverlay;
 class QStackedLayout;
-class cControlInterface;
 
-class cMainWindow : public QWidget
+class GameWidget;
+class SystemMenu;
+class VoxelEngine;
+
+class MainWindow : public QWidget
 {
   Q_OBJECT
 public:
-  explicit cMainWindow(QWidget *parent = nullptr, int numThreads = 1,
-		       const std::string &worldName = "", uint32_t seed = 0 );
-  virtual ~cMainWindow();
-			
+  explicit MainWindow(QWidget *parent = nullptr);
+  virtual ~MainWindow();
+
 public slots:
-  void togglePhysics(bool checked);
-  void stepPhysics();
-  void setTimestep(int timestepMs);
-  void setPosition(Point3f player, Point3i collisions, Point3i chunk);
-  void setBlockInfo(block_t type, float lightLevel);
-  
+  void createWorld(const World::Options &options);
+  void loadWorld(const World::Options &options);
 protected slots:
-  void toolSelected(int id, bool checked);
+  void quit();
   
 protected:
-  void keyPressEvent(QKeyEvent *event);
-
-private:
-  cGameWidget *mGame = nullptr;
-  QStackedLayout *mGameLayout = nullptr;
-  cOverlay *mOverlay = nullptr;
-  cControlInterface *mBottomControl = nullptr;
+  QSize minimumSizeHint() const;
+  QSize sizeHint() const;
   
-  QGridLayout *mMainLayout = nullptr;
+private:
+  SystemMenu *mMenu = nullptr;
+  GameWidget *mGame = nullptr;
+  VoxelEngine *mEngine = nullptr;
+
+  int mMainMenuId;
+  int mWorldCreateId;
+  int mWorldLoadId;
+  int mGameId;
 };
 
 #endif //MAIN_WINDOW_HPP

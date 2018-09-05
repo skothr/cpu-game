@@ -1,141 +1,129 @@
 #include "mainWindow.hpp"
 
 #include "gameWidget.hpp"
+#include "worldCreate.hpp"
+#include "worldLoad.hpp"
+#include "mainMenu.hpp"
+#include "systemMenu.hpp"
+#include "button.hpp"
 #include "notifySlider.hpp"
-#include "overlay.hpp"
-#include "controlInterface.hpp"
 
-#include <QStackedLayout>
 #include <QGridLayout>
+#include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QLabel>
 #include <QRadioButton>
+#include <QMouseEvent>
+#include <QKeyEvent>
+#include <QWheelEvent>
 
 #include <iostream>
+#include <functional>
 
 #define MARGIN 0
 #define ITER_TICK_STEP 32
 #define SAMPLE_TICK_STEP 1
 
 
-cMainWindow::cMainWindow(QWidget *parent, int numThreads, const std::string &worldName, uint32_t seed)
+MainWindow::MainWindow(QWidget *parent)
   : QWidget(parent)
 {
-  mGame = new cGameWidget(this, numThreads, worldName, seed);
-  connect(mGame, SIGNAL(posChanged(Point3f, Point3i, Point3i)),
-          this, SLOT(setPosition(Point3f, Point3i, Point3i)));
-  connect(mGame, SIGNAL(blockInfo(block_t, float)),
-          this, SLOT(setBlockInfo(block_t, float)));
+  QPalette pal = palette();
+  pal.setColor(QPalette::Button, QColor(Qt::black));
+  setPalette(pal);
+  update();
   
-
-  mOverlay = new cOverlay(this, {LabelDesc("POSITION", (align_t)(align_t::TOP)),
-                                 LabelDesc("CHUNK", (align_t)(align_t::TOP)),
-                                 LabelDesc("BLOCK", (align_t)(align_t::TOP)),
-                                 LabelDesc("LIGHT", (align_t)(align_t::TOP))});
-
-  mOverlay->raise();
-  //mChunkLabel->raise();
+  // main game screen
+  mGame = new GameWidget(this);
+  mEngine = mGame->getEngine();
   
-  // game viewport layout
-  mGameLayout = new QStackedLayout();
-  mGameLayout->setStackingMode(QStackedLayout::StackAll);
-  //mMainLayout->setMargin(MARGIN);
-  mGameLayout->addWidget(mOverlay);
-  mGameLayout->addWidget(mGame);
+  // world create/load menus
+  MainMenu *main = new MainMenu(this);
+  WorldLoad *load = new WorldLoad(mEngine->getWorld(), this);
+  WorldCreate *create = new WorldCreate(this);
 
-  // control layouts
-  mBottomControl = new cControlInterface(mGame->getEngine());
+  mMenu = new SystemMenu(this);
+  mMainMenuId = mMenu->addWidget(main);
+  mWorldCreateId = mMenu->addWidget(create);
+  mWorldLoadId = mMenu->addWidget(load);
+  mGameId = mMenu->addWidget(mGame);
+  mMenu->changeMenu(mMainMenuId); // start at main menu
 
-  // add to main grid layout
-  mMainLayout = new QGridLayout(this);
-  mMainLayout->setSpacing(0);
-  mMainLayout->setMargin(0);
-  mMainLayout->addLayout(mGameLayout, 0, 0, 4, 4);
-  mMainLayout->addWidget(mBottomControl, 2, 0, 2, 4, Qt::AlignBottom);
+  // main
+  connect(main, &MainMenu::createWorld, std::bind(&SystemMenu::changeMenu, mMenu, mWorldCreateId));
+  connect(main, &MainMenu::loadWorld, std::bind(&SystemMenu::changeMenu, mMenu, mWorldLoadId));
+  connect(main, &MainMenu::quit, std::bind(&QWidget::close, this));
+  // create
+  connect(create, &WorldCreate::created, this, &MainWindow::createWorld);
+  connect(create, &WorldCreate::back, std::bind(&SystemMenu::changeMenu, mMenu, mMainMenuId));
+  // load
+  connect(load, &WorldLoad::loaded, this, &MainWindow::loadWorld);
+  connect(load, &WorldLoad::back, std::bind(&SystemMenu::changeMenu, mMenu, mMainMenuId));
+  // game
+  connect(mGame, &GameWidget::quit, this, &QWidget::close);
   
-  setLayout(mMainLayout);
+  QHBoxLayout *mainLayout = new QHBoxLayout();
+  mainLayout->addWidget(mMenu);
+  setLayout(mainLayout);
+  move(10,10);
+  resize(960, 1020);
 }
 
-cMainWindow::~cMainWindow()
+MainWindow::~MainWindow()
 {
-  
-}
-void cMainWindow::setTimestep(int timestepMs)
-{
-  //mGame->setTimestep(timestepMs);
+  LOGD("deconstructing mainwindow...");
 }
 
-void cMainWindow::stepPhysics()
+void MainWindow::loadWorld(const World::Options &options)
 {
-  //mGame->stepPhysics(1);
-}
-
-void cMainWindow::togglePhysics(bool checked)
-{
-  //mPhysicsBtn->setText(checked ? "Stop Physics ><" : "Start Physics >>");
-  //mGame->togglePhysics(checked);
-}
-
-void cMainWindow::setPosition(Point3f player, Point3i collisions, Point3i chunk)
-{
-  //std::cout << "SETTING POSITION: " << player << ", chunk: " << chunk << "\n";
-  QLabel *pl = mOverlay->getLabel(0);
-  QLabel *cl = mOverlay->getLabel(1);
-  std::stringstream ss;
-  ss << "POSITION:  " << player << "  (" << collisions << ")";
-  pl->setText(ss.str().c_str());
-  ss.str("");
-  ss.clear();
-  ss << "CHUNK:     " << chunk;
-  cl->setText(ss.str().c_str());
-}
-
-void cMainWindow::setBlockInfo(block_t type, float lightLevel)
-{
-  QLabel *tl = mOverlay->getLabel(2);
-  QLabel *ll = mOverlay->getLabel(3);
-  tl->setText(("BLOCK TYPE: " + toString(type)).c_str());
-  std::stringstream ss;
-  ss << "LIGHT LEVEL:     " << lightLevel;
-  ll->setText(ss.str().c_str());
-}
-
-void cMainWindow::keyPressEvent(QKeyEvent *event)
-{
-  switch(event->key())
+  if(mEngine->loadWorld(options))
     {
-    case Qt::Key_Escape:   // quit program
-      LOGI("Escape pressed (cMainWindow).");
-      close();
-      event->accept();
-      break;
-    case Qt::Key_X:   // toggle mouse capture
-      mGame->captureMouse(!mGame->getMouseCaptured());
-      if(mGame->getMouseCaptured())
-        {
-          LOGI("Captured mouse!");
-          mBottomControl->collapse();
-        }
-      else
-        {
-          LOGI("Released mouse!");
-          mBottomControl->expand();
-        }
-      event->accept();
-      break;
-
-    default:
-      event->ignore();
-      break;
+      mGame->start();
+      LOGI("Switching to game menu...");
+      mMenu->changeMenu(mGameId);
+    }
+  else
+    { // TODO: Show popup dialog
+      LOGE("Could not load world!");
+    }
+}
+void MainWindow::createWorld(const World::Options &options)
+{
+  if(mEngine->createWorld(options))
+    {
+      mGame->start();
+      LOGI("Switching to game menu...");
+      mMenu->changeMenu(mGameId);
+    }
+  else
+    { // TODO: Show popup dialog
+      LOGE("Could not create world!");
     }
 }
 
-void cMainWindow::toolSelected(int id, bool checked)
+void MainWindow::quit()
 {
-  if(checked)
-    {
-      mGame->setTool((block_t)id);
-    }
+  // TODO: Popup to confirm quitting
+  LOGI("Quitting to desktop...");
+  close();
 }
 
-    
+QSize MainWindow::minimumSizeHint() const
+{ return QSize(512, 512); }
+
+QSize MainWindow::sizeHint() const
+{ return QSize(960, 1080); }
+
+
+// void MainWindow::mousePressEvent(QMouseEvent *event)
+// { }
+// void MainWindow::mouseReleaseEvent(QMouseEvent *event)
+// { }
+// void MainWindow::mouseMoveEvent(QMouseEvent *event)
+// { }
+// void MainWindow::keyPressEvent(QKeyEvent *event)
+// { }
+// void MainWindow::keyReleaseEvent(QKeyEvent *event)
+// { }
+// void MainWindow::wheelEvent(QWheelEvent *event)
+// { }

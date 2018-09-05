@@ -78,7 +78,8 @@ static std::unordered_map<blockSide_t, Point3i> gSideDirections =
     {gBlockSides[22], Point3i({ 1, 0, 1})},
     {gBlockSides[23], Point3i({-1, 1, 1})},
     {gBlockSides[24], Point3i({ 0, 1, 1})},
-    {gBlockSides[25], Point3i({ 1, 1, 1})} };
+    {gBlockSides[25], Point3i({ 1, 1, 1})},
+    {blockSide_t::NONE, Point3i({0, 0, 0})}};
 
 // opposite sides
 static std::unordered_map<blockSide_t, blockSide_t> gOppositeSides =

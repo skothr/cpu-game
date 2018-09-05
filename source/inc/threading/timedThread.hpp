@@ -18,7 +18,6 @@ public:
   { }
 
   virtual ~TimedThread() { };
-
   
   void setInterval(int us)
   { mInterval = us; }
@@ -76,9 +75,7 @@ private:
 	    double diff = std::chrono::duration_cast<UNITS>(now - lastTime).count();
 
 	    if((diff - lastDiff) > 1000000) // more than 1ms difference b/w frames
-	      {
-		LOGW("Frame %fs longer than last frame.", (diff - lastDiff));
-	      }
+	      { LOGW("Frame %fs longer than last frame.", (diff - lastDiff)); }
 	    
 	    accum += diff;
 	

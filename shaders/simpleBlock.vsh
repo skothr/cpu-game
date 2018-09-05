@@ -4,6 +4,7 @@ uniform mat4 pvm;
 uniform vec3 camPos;
 uniform float fogStart;
 uniform float fogEnd;
+uniform vec3 dirScale;
 uniform sampler2DArray uTex;
 
 layout(location = 0) in vec3 posAttr;
@@ -24,8 +25,8 @@ void main()
   
   texCoord = vec3(texCoordAttr);
   lighting = lightAttr;
-  float dist = sqrt((camPos.x - posAttr.x)*(camPos.x - posAttr.x) +
-                    (camPos.y - posAttr.y)*(camPos.y - posAttr.y) +
-                    (camPos.z - posAttr.z)*(camPos.z - posAttr.z) );
+  float dist = sqrt((camPos.x - posAttr.x)*(camPos.x - posAttr.x)*dirScale.x +
+                    (camPos.y - posAttr.y)*(camPos.y - posAttr.y)*dirScale.y +
+                    (camPos.z - posAttr.z)*(camPos.z - posAttr.z)*dirScale.z );
   fog = (fogEnd - dist)/(fogEnd - fogStart);
 }

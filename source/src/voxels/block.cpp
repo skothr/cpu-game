@@ -24,32 +24,32 @@ bool Block::activeMirror(blockSide_t side)
   return type != block_t::NONE;
 }
 */
-int Block::serialize(uint8_t *dataOut) const
-{
-  dataOut[0] = (uint8_t)type;
-  int bytes = dataSize;
-  //std::memcpy((void*)dataOut, (void*)&type, dataSize);
-  // if(data)
-  //   {
-  //     if(isFluidBlock(type))
-  //       {
-  //         bytes += reinterpret_cast<FluidData*>(data)->serialize(dataOut+dataSize);
-  //       }
-  //   }
-  return bytes;
-}
-void Block::deserialize(const uint8_t *dataIn, int bytes)
-{
-  //std::memcpy((void*)&type, (void*)dataIn, dataSize);
-  type = (block_t)dataIn[0];
-  // if(data)
-  //   {
-  //     delete data;
-  //     data = nullptr;
-  //   }
-  // if(bytes > dataSize)
-  //   {
-  //     if(isFluidBlock(type))
-  //       { data = new FluidData(dataIn+dataSize, bytes-dataSize); }
-  //   }
-}
+// int Block::serialize(uint8_t *dataOut) const
+// {
+//   dataOut[0] = (uint8_t)type;
+//   int bytes = dataSize;
+//   //std::memcpy((void*)dataOut, (void*)&type, dataSize);
+//   // if(data)
+//   //   {
+//   //     if(isFluidBlock(type))
+//   //       {
+//   //         bytes += reinterpret_cast<FluidData*>(data)->serialize(dataOut+dataSize);
+//   //       }
+//   //   }
+//   return bytes;
+// }
+// void Block::deserialize(const uint8_t *dataIn, int bytes)
+// {
+//   //std::memcpy((void*)&type, (void*)dataIn, dataSize);
+//   type = (block_t)dataIn[0];
+//   // if(data)
+//   //   {
+//   //     delete data;
+//   //     data = nullptr;
+//   //   }
+//   // if(bytes > dataSize)
+//   //   {
+//   //     if(isFluidBlock(type))
+//   //       { data = new FluidData(dataIn+dataSize, bytes-dataSize); }
+//   //   }
+// }
