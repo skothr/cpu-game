@@ -36,4 +36,10 @@ struct cSimpleVertex
   { }
 };
 
+struct QuadVertex
+{
+  Point2f  pos;
+  Vector2f texcoord;
+};
+
 #endif // VETEX_HPP

@@ -25,22 +25,22 @@ inline update_t& operator&=(update_t &u1, const update_t &u2) { u1 = (update_t)(
 inline update_t operator&(update_t u1, update_t u2) { return (update_t)((int)u1 & (int)u2); }
 inline update_t operator~(update_t u1) { return (update_t)~((int)u1); }
 
-class cMesh : protected QOpenGLFunctions_4_3_Core
+class Mesh : protected QOpenGLFunctions_4_3_Core
 {
 public:
-  cMesh();//bool doubleBuffered = true);
-  cMesh(const objl::Mesh &mesh);//, bool doubleBuffered = true);
-  ~cMesh();
+  Mesh();//bool doubleBuffered = true);
+  Mesh(const objl::Mesh &mesh);//, bool doubleBuffered = true);
+  ~Mesh();
 
   void setMode(GLenum mode);
 
   bool setMesh(const std::vector<objl::Vertex> &vertices,
 	       const std::vector<unsigned int> &indices );
   
-  bool setMesh(const std::vector<cSimpleVertex> &vertices,
+  bool setMesh(const std::vector<cTexVertex> &vertices,
 	       const std::vector<unsigned int> &indices );
 
-  bool setVertices(const std::vector<cSimpleVertex> &vertices);
+  bool setVertices(const std::vector<cTexVertex> &vertices);
   bool setIndices(const std::vector<unsigned int> &indices);
 
   void setUpdate()
@@ -52,13 +52,13 @@ public:
 
   //void mmapWrite(
   
-  const std::vector<cSimpleVertex>& getVertices() const
+  const std::vector<cTexVertex>& getVertices() const
   { return mVertices; }
   //{ return mVertices[mDB ? (mCurrVbo+1)%2 : mCurrVbo]; }
   const std::vector<unsigned int>& getIndices() const
   { return mIndices; }
   //{ return mIndices[mDB ? (mCurrVbo+1)%2 : mCurrVbo]; }
-  std::vector<cSimpleVertex>& getVertices()
+  std::vector<cTexVertex>& getVertices()
   { return mVertices; }
   //{ return mVertices[mDB ? (mCurrVbo+1)%2 : mCurrVbo]; }
   std::vector<unsigned int>& getIndices()
@@ -76,10 +76,10 @@ public:
 private:
   std::string mName;
   objl::Material mMaterial;
-  std::vector<cSimpleVertex> mVertices;//[2];
+  std::vector<cTexVertex> mVertices;//[2];
   std::vector<unsigned int> mIndices;//[2];
 
-  cSimpleVertex *mVData = nullptr;
+  cTexVertex *mVData = nullptr;
   unsigned int *mIData = nullptr;
 
   bool mLoaded = false;

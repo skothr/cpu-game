@@ -52,16 +52,16 @@ namespace wDesc
   struct Header
   {
     Header(const Vector<uint8_t, 4> &version = {}, uint8_t blockSize = Block::dataSize,
-           terrain_t terrain = terrain_t::INVALID, uint32_t seed = 0)//, const std::string &name = "" )
-      : version(version), blockSize(blockSize), terrain(terrain), seed(seed)
+           terrain_t terrain = terrain_t::INVALID, uint32_t seed = 0, const Point3i &playerPos = Point3i() )
+      : version(version), blockSize(blockSize), terrain(terrain), seed(seed), playerPos(playerPos)
     { }//std::memcpy((void*)worldName, (void*)name.c_str(),
       //          std::max(sizeof(wDesc::Header::worldName), name.size())); }
     
     Vector<uint8_t, 4> version; // ALWAYS FIRST 4 BYTES
     uint8_t blockSize;          // byte size of each block
     terrain_t terrain;          // terrain generation method
-    //char worldName[32] = {0};         // name of world
-    uint32_t seed;     // to protect end of worldName string (TODO: possisbly unnecessary)
+    uint32_t seed;
+    Point3i playerPos;
   };
   // struct RegionDesc
   // {

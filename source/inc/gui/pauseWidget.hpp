@@ -12,6 +12,7 @@ public:
   
 signals:
   void resumed();
+  void mainMenu();
   void quit();
   
 protected:

@@ -12,7 +12,7 @@
 
 
 WorldLoad::WorldLoad(World *world, QWidget *parent)
-  : QWidget(parent), mWorld(world), mOptions{"", terrain_t::PERLIN_WORLD, 0, {8,8,4}, 4, 8}
+  : QWidget(parent), mWorld(world), mOptions{"", terrain_t::PERLIN_WORLD, 0, {0,0,0}, {8,8,4}, 8, 8}
 {
   mWorldList = new QListWidget();
   loadWorlds();

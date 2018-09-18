@@ -14,7 +14,7 @@ cTextureAtlas::~cTextureAtlas()
   destroy();
 }
 
-#define MAX_TEXTURES 8
+#define MAX_TEXTURES 16
   
 bool cTextureAtlas::create(const std::string &filePath)
 {
@@ -74,9 +74,9 @@ void cTextureAtlas::destroy()
       mLoaded = false;
     }
 }
-void cTextureAtlas::bind()
+void cTextureAtlas::bind(int texNum)
 {
-  glActiveTexture(GL_TEXTURE0);
+  glActiveTexture(GL_TEXTURE0 + texNum);
   glBindTexture(GL_TEXTURE_2D_ARRAY, mTextureId);
 }
 void cTextureAtlas::release()

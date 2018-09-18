@@ -9,45 +9,55 @@
 
 #define THREAD_SLEEP_US (1000 * 50) // 50ms
 
-cDevice::cDevice()
+Device::Device()
 {
 
 }
 
-bool cDevice::addCpu(cCpu *newCpu)
+bool Device::addCpu(Cpu *newCpu)
 {
-  if(mRunning)
-    {
-      LOGI("Failed to add CPU -- device running.");
-      return false;
-    }
-  else
-    {
+  //if(mRunning)
+  //   {
+  //     LOGI("Failed to add CPU -- device running.");
+  //     return false;
+  //   }
+  // else
+  //   {
       mCpu = newCpu;
       return true;
-    }
+      //}
 }
 
-bool cDevice::addMemory(cMemory *newMemory)
+bool Device::addMemory(Memory *newMemory)
 {
   mMemory = newMemory;
   return true;
 }
+bool Device::ready() const
+{
+  return (mMemory && mCpu);
+}
 
-bool cDevice::start()
+void Device::update()
+{
+  mCpu->update(1.0/100.0, mMemory);
+}
+
+/*
+bool Device::start()
 {
   mRunning = true;
   mThread = std::thread( [this]{ runLoop(); } );
   return true;
 }
-bool cDevice::stop()
+bool Device::stop()
 {
   mRunning = false;
   mThread.join();
   return true;
 }
 
-void cDevice::runLoop()
+void Device::runLoop()
 {
   auto lastTime = CLOCK::now();
   while(mRunning)
@@ -60,3 +70,4 @@ void cDevice::runLoop()
       usleep(THREAD_SLEEP_US);
     }
 }
+*/

@@ -60,7 +60,11 @@ public:
   TerrainGenerator(uint32_t seed)
     : mSeed(seed)
   {
+    mNoise.SetNoiseType(FastNoise::SimplexFractal);
+    mNoise.SetFrequency(1.0);
     mNoise.SetSeed(seed);
+    mNoise.SetInterp(FastNoise::Linear);
+    mNoise.SetFractalOctaves(1);
   }
 
   void setSeed(uint32_t seed)

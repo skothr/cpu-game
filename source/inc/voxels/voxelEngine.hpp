@@ -30,8 +30,8 @@ public:
   VoxelEngine(QObject *qParent = nullptr);
   ~VoxelEngine();
 
-  bool loadWorld(const World::Options &opt);
-  bool createWorld(const World::Options &opt);
+  bool loadWorld(World::Options &opt);
+  bool createWorld(World::Options &opt);
   
   void start();
   void stop();
@@ -50,6 +50,8 @@ public:
   bool initGL(QObject *qparent);
   void cleanUpGL();
   void render();
+
+  double getFramerate() const;
   
   struct ProjDesc
   {
@@ -76,6 +78,8 @@ private:
   bool mPaused = false;
   bool mWireframe = false;
   bool mWireframeChanged = false;
+
+  double mFramerate = 0.0;
   
 #if GOD_PLAYER
   GodPlayer *mPlayer;
@@ -88,7 +92,7 @@ private:
   TimedThread mBlockThread;
   ThreadPool mMainThread;
   
-  double printFps() const;
+  double printFps();
   void stepPhysics(int us);
   void stepBlocks(int us);
   void mainLoop();

@@ -1,5 +1,10 @@
 #version 330
 
+uniform mat4 pvm;
+uniform vec3 camPos;
+uniform float fogStart;
+uniform float fogEnd;
+uniform vec3 dirScale;
 uniform sampler2DArray uTex;
 
 #define LIGHT_DIR vec3(0.6, 0.8, 1.0)

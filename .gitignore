@@ -18,3 +18,4 @@ Makefile.Release
 libs/
 worlds/
 *.old
+gmon.out

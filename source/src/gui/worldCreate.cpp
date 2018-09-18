@@ -11,7 +11,7 @@
 #include <QComboBox>
 
 WorldCreate::WorldCreate(QWidget *parent)
-  : QWidget(parent), mOptions{"new-world", terrain_t::PERLIN_WORLD, 0, {8,8,4}, 4, 8}
+  : QWidget(parent), mOptions{"new-world", terrain_t::PERLIN_WORLD, 0, {0,0,0}, {8,8,4}, 8, 8}
 {
   QLabel *nLabel = new QLabel("World Name: ");
   QLineEdit *nameText = new QLineEdit();
@@ -28,7 +28,7 @@ WorldCreate::WorldCreate(QWidget *parent)
   for(int i = 0; i < (int)terrain_t::COUNT; i++)
     { tBox->addItem(QString(toString((terrain_t)i).c_str())); }
   connect(tBox, SIGNAL(currentIndexChanged(int)), this, SLOT(setTerrain(int)));
-  tBox->setCurrentIndex(0);
+  tBox->setCurrentIndex((int)mOptions.terrain);
   QHBoxLayout *thbox = new QHBoxLayout();
   thbox->addWidget(tLabel);
   thbox->addWidget(tBox);

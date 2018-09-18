@@ -2,13 +2,13 @@
 
 #include "chunk.hpp"
 
-cMesh::cMesh()//bool doubleBuffered)
+Mesh::Mesh()//bool doubleBuffered)
   : mName("")//, mRenderLock(new std::mutex()), mDB(doubleBuffered)
 {
 
 }
 
-cMesh::cMesh(const objl::Mesh &mesh)//, bool doubleBuffered)
+Mesh::Mesh(const objl::Mesh &mesh)//, bool doubleBuffered)
   : mName(mesh.MeshName)//, mMaterial(mesh.MeshMaterial)
     //mRenderLock(new std::mutex()), mDB(doubleBuffered)
 {
@@ -16,17 +16,17 @@ cMesh::cMesh(const objl::Mesh &mesh)//, bool doubleBuffered)
 	  std::vector<unsigned int>(mesh.Indices.begin(), mesh.Indices.end() ));
 }
 
-cMesh::~cMesh()
+Mesh::~Mesh()
 {
   //delete mRenderLock;
 }
 
-void cMesh::setMode(GLenum mode)
+void Mesh::setMode(GLenum mode)
 {
   mMode = mode;
 }
 
-bool cMesh::setMesh(const std::vector<objl::Vertex> &vertices,
+bool Mesh::setMesh(const std::vector<objl::Vertex> &vertices,
 		    const std::vector<unsigned int> &indices )
 {
   mVertices.clear();
@@ -44,7 +44,7 @@ bool cMesh::setMesh(const std::vector<objl::Vertex> &vertices,
   //mCurrVbo = (mCurrVbo + 1) % 2;
   return true;
 }
-bool cMesh::setMesh(const std::vector<cSimpleVertex> &vertices,
+bool Mesh::setMesh(const std::vector<cTexVertex> &vertices,
 		    const std::vector<unsigned int> &indices )
 {
   mVertices = vertices;
@@ -54,7 +54,7 @@ bool cMesh::setMesh(const std::vector<cSimpleVertex> &vertices,
   //mCurrVbo = (mCurrVbo + 1) % 2;
   return true;
 }
-bool cMesh::setVertices(const std::vector<cSimpleVertex> &vertices)
+bool Mesh::setVertices(const std::vector<cTexVertex> &vertices)
 {
   mVertices = vertices;
   //std::lock_guard<std::mutex> lock(*mRenderLock);
@@ -62,7 +62,7 @@ bool cMesh::setVertices(const std::vector<cSimpleVertex> &vertices)
   // mCurrVbo = (mCurrVbo + 1) % 2;
   return true;
 }
-bool cMesh::setIndices(const std::vector<unsigned int> &indices)
+bool Mesh::setIndices(const std::vector<unsigned int> &indices)
 {
   mIndices = indices;
   //std::lock_guard<std::mutex> lock(*mRenderLock);
@@ -71,7 +71,7 @@ bool cMesh::setIndices(const std::vector<unsigned int> &indices)
   return true;
 }
 
-void cMesh::cleanupGL()
+void Mesh::cleanupGL()
 {
   mVao->destroy();
   delete mVao;
@@ -91,7 +91,7 @@ void cMesh::cleanupGL()
 }
 
 // make sure to call this from the OpenGL thread!
-bool cMesh::initGL(Shader *shader)
+bool Mesh::initGL(Shader *shader)
 {
   if(!mLoaded)
     {
@@ -101,25 +101,23 @@ bool cMesh::initGL(Shader *shader)
 	  mVbo = new QOpenGLBuffer(QOpenGLBuffer::VertexBuffer);
 	  if(!mVbo->create())
 	    {
-	      LOGE("VBO create failed in cMesh!!");
+	      LOGE("VBO create failed in Mesh!!");
 	      return false;
 	    }
-	  mVbo->bind();
 	  mVbo->setUsagePattern(QOpenGLBuffer::DynamicDraw);
 
 	  mIbo = new QOpenGLBuffer(QOpenGLBuffer::IndexBuffer);
 	  if(!mIbo->create())
 	    {
-	      LOGE("IBO create failed in cMesh!!");
+	      LOGE("IBO create failed in Mesh!!");
 	      return false;
 	    }
-	  mIbo->bind();
 	  mIbo->setUsagePattern(QOpenGLBuffer::DynamicDraw);
           /*
 	  mVbo2 = new QOpenGLBuffer(QOpenGLBuffer::VertexBuffer);
 	  if(!mVbo2->create())
 	    {
-	      LOGE("VBO create failed in cMesh!!");
+	      LOGE("VBO create failed in Mesh!!");
 	      return false;
 	    }
 	  mVbo2->bind();
@@ -128,7 +126,7 @@ bool cMesh::initGL(Shader *shader)
 	  mIbo2 = new QOpenGLBuffer(QOpenGLBuffer::IndexBuffer);
 	  if(!mIbo2->create())
 	    {
-	      LOGE("IBO create failed in cMesh!!");
+	      LOGE("IBO create failed in Mesh!!");
 	      return false;
 	    }
 	  mIbo2->bind();
@@ -145,36 +143,37 @@ bool cMesh::initGL(Shader *shader)
           mIbo->release();
           */
           
-	  if(mVertices.size() > 0 && mNeedUpdate & UPDATE_VERTICES)
-	    {
-	      mVbo->allocate(mVertices.data(), mVertices.size()*sizeof(cSimpleVertex));
-	      mNeedUpdate &= ~UPDATE_VERTICES;
-	    }
-	  if(mIndices.size() > 0 && mNeedUpdate & UPDATE_INDICES)
-	    {
-	      mIbo->allocate(mIndices.data(), mIndices.size()*sizeof(unsigned int));
-	      mNeedUpdate &= ~UPDATE_INDICES;
-	    }
           
 	  //}
   
       mVao = new QOpenGLVertexArrayObject();
       if(!mVao->create())
 	{
-	  LOGE("VAO create failed in cMesh!!");
+	  LOGE("VAO create failed in Mesh!!");
 	  return false;
 	}
       mVao->bind();
+      mVbo->bind();
+      mIbo->bind();
+      if(mVertices.size() > 0 && mNeedUpdate & UPDATE_VERTICES)
+        {
+          mVbo->allocate(mVertices.data(), mVertices.size()*sizeof(cTexVertex));
+          mNeedUpdate &= ~UPDATE_VERTICES;
+        }
+      if(mIndices.size() > 0 && mNeedUpdate & UPDATE_INDICES)
+        {
+          mIbo->allocate(mIndices.data(), mIndices.size()*sizeof(unsigned int));
+          mNeedUpdate &= ~UPDATE_INDICES;
+        }
 
       // configure attributes
-      shader->setAttrBuffer(0, GL_FLOAT, 0, 3, sizeof(cSimpleVertex) );
-      shader->setAttrBuffer(1, GL_FLOAT, 3 * sizeof(float), 3, sizeof(cSimpleVertex) );
-      shader->setAttrBuffer(2, GL_FLOAT, 6 * sizeof(float), 3, sizeof(cSimpleVertex) );
-      shader->setAttrBuffer(3, GL_FLOAT, 9 * sizeof(float), 1, sizeof(cSimpleVertex) );
+      shader->setAttrBuffer(0, GL_FLOAT, 0, 3, sizeof(cTexVertex) );
+      shader->setAttrBuffer(1, GL_FLOAT, 3 * sizeof(float), 3, sizeof(cTexVertex) );
+      shader->setAttrBuffer(2, GL_FLOAT, 6 * sizeof(float), 2, sizeof(cTexVertex) );
   
       mVao->release();
-      mVbo->release();
-      mIbo->release();
+      //mVbo->release();
+      //mIbo->release();
       
       //LOGD("done");
       mLoaded = true;
@@ -184,7 +183,7 @@ bool cMesh::initGL(Shader *shader)
     { return false; }
 }
 
-void cMesh::detachData()
+void Mesh::detachData()
 {
   //GLuint vboId = mVbo->bufferId();
   //GLuint iboId = mIbo->bufferId();
@@ -193,72 +192,41 @@ void cMesh::detachData()
   mIbo->bind();
   glBufferData(GL_ELEMENT_ARRAY_BUFFER, 0, NULL, GL_DYNAMIC_DRAW);
 
-  mVbo->release();
-  mIbo->release();
+  //mVbo->release();
+  //mIbo->release();
 }
 
 /*
-void cMesh::setUpdatedData()
+void Mesh::setUpdatedData()
 {
   
 }
 */
-bool cMesh::initialized() const
+bool Mesh::initialized() const
 { return mLoaded; }
 
-void cMesh::render(Shader *shader)
+void Mesh::render(Shader *shader)
 {
   //std::lock_guard<std::mutex> lock(*mRenderLock);
   if(mVertices.size() > 0 && mIndices.size() > 0)
-  {
-    
-    mVao->bind();
-    mVbo->bind();
-    mIbo->bind();
-    if(mNeedUpdate & UPDATE_VERTICES)
-      {
-	//LOGD("Updating vertices...");
-        // if(mVbo->size() <= mVertices.size()*sizeof(cSimpleVertex))
-        //   {
-        //     mVbo->write(0, mVertices.data(), mVertices.size()*sizeof(cSimpleVertex));
-        //   }
-        //   else
-        //   {
-        //     mVbo->allocate(mVertices.data(), mVertices.size()*sizeof(cSimpleVertex));
-        //   }
-        mVbo->allocate(mVertices.data(), mVertices.size()*sizeof(cSimpleVertex));
-
-        //mVData = (cSimpleVertex*)mVbo->map(QOpenGLBuffer::WriteOnly);
-          
-          //std::memcpy((void*)mVData, (void*)mVertices.data(), mVertices.size()*sizeof(cSimpleVertex));
-	mNeedUpdate &= ~UPDATE_VERTICES;
-	//LOGD("NEED UPDATE: 0x%02X", mNeedUpdate);
-      }
-    if(mNeedUpdate & UPDATE_INDICES)
-      {
-	//LOGD("Updating indices...");
-        // if(mIbo->size() <= mIndices.size()*sizeof(unsigned int))
-        //   {
-        //      mIbo->allocate(mIndices.data(), mIndices.size()*sizeof(unsigned int));
-        //   }
-        //   //else
-        //   {
-        //     //mIbo->allocate(mIndices.data(), mIndices.size()*sizeof(unsigned int));
-        //     // mIData = (unsigned int*)mIbo->map(QOpenGLBuffer::WriteOnly);
-        //       mIbo->write(0, mIndices.data(), mIndices.size()*sizeof(unsigned int));
-        //   }
-             mIbo->allocate(mIndices.data(), mIndices.size()*sizeof(unsigned int));
-
-          //std::memcpy((void*)mIData, (void*)mIndices.data(), mIndices.size()*sizeof(unsigned int));
-        
-	//mIbo->write(0, mIndices.data(), mIndices.size()*sizeof(unsigned int));
-	mNeedUpdate &= ~UPDATE_INDICES;
-	//LOGD("NEED UPDATE: 0x%02X", mNeedUpdate);
-      }
-    glFlush();
-    glDrawElements(mMode, mIndices.size(), GL_UNSIGNED_INT, 0);
-    mIbo->release();
-    mVbo->release();
-    mVao->release();
+    {
+      mVao->bind();
+      if(mNeedUpdate & UPDATE_VERTICES)
+        {
+          mVbo->bind();
+          mVbo->allocate(mVertices.data(), mVertices.size()*sizeof(cTexVertex));
+          mNeedUpdate &= ~UPDATE_VERTICES;
+        }
+      if(mNeedUpdate & UPDATE_INDICES)
+        {
+          mIbo->bind();
+          mIbo->allocate(mIndices.data(), mIndices.size()*sizeof(unsigned int));
+          mNeedUpdate &= ~UPDATE_INDICES;
+        }
+      //LOGD("RENDERING MESH: '%s'", mName.c_str());
+      glDrawElements(mMode, mIndices.size(), GL_UNSIGNED_INT, 0);
+      //mIbo->release();
+      //mVbo->release();
+      mVao->release();
   }
 }

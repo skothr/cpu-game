@@ -36,8 +36,12 @@ public:
   void setThreads(int numThreads) { mLoadPool.setThreads(numThreads); }
   int numThreads() const { return mLoadPool.numThreads(); }
 
-  bool createWorld(const std::string &worldName, terrain_t terrain, uint32_t seed = 0);
+  bool createWorld(const std::string &worldName, terrain_t terrain,
+                   uint32_t seed );
   bool loadWorld(const std::string &worldName);
+
+  Point3i getPlayerPos() const { return mHeader.playerPos; }
+  void savePlayerPos(const Point3i &pos);
   
   std::vector<World::Options> getWorlds();
   std::vector<std::string> listWorlds();

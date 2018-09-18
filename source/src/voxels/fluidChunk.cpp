@@ -1,67 +1,96 @@
 #include "fluidChunk.hpp"
 
 const Point3i FluidChunk::size {FluidChunk::sizeX, FluidChunk::sizeY, FluidChunk::sizeZ};
+const Indexer<FluidChunk::sizeX, FluidChunk::sizeY, FluidChunk::sizeZ> FluidChunk::mIndexer;
 
 FluidChunk::FluidChunk(const Point3i &worldPos)
-  : mWorldPos(worldPos)
+  : mWorldPos(worldPos), mFluids{{nullptr}}
 { }
 
-FluidChunk::FluidChunk(const Point3i &worldPos, const std::unordered_map<int32_t, Fluid*> &data)
+FluidChunk::FluidChunk(const Point3i &worldPos, const std::array<Fluid*, FluidChunk::totalSize> &data)
   : mWorldPos(worldPos)
 {
-  for(auto iter : data)
+  for(int i = 0; i < mFluids.size(); i++)
     {
-      if(iter.second)
-        {
-          mFluids.emplace(iter.first, new Fluid(*iter.second));
-        }
+      if(data[i])
+        { mFluids[i] = new Fluid(*data[i]); }
+      else
+        { mFluids[i] = nullptr; }
     }
 }
 
-
 bool FluidChunk::isEmpty() const
-{ return mFluids.size() == 0; }
+{ return mNumFluids == 0; }
 int FluidChunk::numBlocks() const
-{ return mFluids.size(); }
+{ return mNumFluids; }
 
-Fluid* FluidChunk::at(int hash)
-{
-  auto f = mFluids.find(hash);
-  if(f != mFluids.end())
-    { return f->second; }
-  else
-    { return nullptr; }
-}
+// Fluid* FluidChunk::at(int hash)
+// {
+//   auto f = mFluids.find(hash);
+//   if(f != mFluids.end())
+//     { return f->second; }
+//   else
+//     { return nullptr; }
+// }
 Fluid* FluidChunk::at(int bx, int by, int bz)
 {
+  return mFluids[mIndexer.index(bx, by, bz)];
+  /*
   auto f = mFluids.find(Hash::hash(bx, by, bz));
   if(f != mFluids.end())
     { return f->second; }
   else
     { return nullptr; }
+  */
 }
 Fluid* FluidChunk::at(const Point3i &bp)
 {
+  return mFluids[mIndexer.index(bp)];
+  /*
   auto f = mFluids.find(Hash::hash(bp));
   if(f != mFluids.end())
     { return f->second; }
   else
     { return nullptr; }
+  */
 }
-std::unordered_map<int32_t, Fluid*>& FluidChunk::data()
+std::array<Fluid*, FluidChunk::totalSize>& FluidChunk::data()
 { return mFluids; }
-const std::unordered_map<int32_t, Fluid*>& FluidChunk::data() const
+const std::array<Fluid*, FluidChunk::totalSize>& FluidChunk::data() const
 { return mFluids; }
 
 bool FluidChunk::set(int bx, int by, int bz, Fluid *data)
 {
   bool result = false;
+
+  const int bi = mIndexer.index(bx, by, bz);
+
+  if(mFluids[bi])
+    {
+      result = true;
+      if(data)
+        {
+          *mFluids[bi] = *data;
+        }
+      else
+        {
+          delete mFluids[bi];
+          mFluids[bi] = nullptr;
+          mNumFluids--;
+        }
+    }
+  else if(data)
+    {
+      result = true;
+      mFluids[bi] = new Fluid(*data);
+      mNumFluids++;
+    }
+
+  return result;
+  /*
+  bool result = false;
   const int hash = Hash::hash(bx, by, bz);
 
-  //if(data)
-  //  { LOGD("Adding fluid --> %f %f", data->fluidEvap, data->fluidLevel); }
-
-  
   auto iter = mFluids.find(hash);
   if(iter != mFluids.end())
     { // remove/replace data
@@ -89,6 +118,7 @@ bool FluidChunk::set(int bx, int by, int bz, Fluid *data)
         }
     }
   return result;
+  */
 }
 bool FluidChunk::set(const Point3i &bp, Fluid *data)
 {
@@ -97,40 +127,45 @@ bool FluidChunk::set(const Point3i &bp, Fluid *data)
 
 void FluidChunk::reset()
 {
-  for(auto &f : mFluids)
+  for(int i = 0; i < totalSize; i++)
     {
-      delete f.second;
-    }
-  mFluids.clear();
-}
-
-// std::unordered_map<int, Fluid*> FluidChunk::getFluids()
-// {
-//   return mFluids;
-// }
-
-bool FluidChunk::step(bool evap)
-{
-  bool result = false;
-  std::vector<int32_t> gone;
-  for(auto &f : mFluids)
-    {
-      if(evap)
-        { result |= f.second->step(); }
-      if(f.second->isEmpty())
+      if(mFluids[i])
         {
-          delete f.second;
-          f.second = nullptr;
-          gone.push_back(f.first);
+          delete mFluids[i];
+          mFluids[i] = nullptr;
         }
     }
-  for(auto hash : gone)
-    { mFluids.erase(hash); }
-  return result | gone.size() > 0;
+  mNumFluids = 0;
+  // for(auto &f : mFluids)
+  //   {
+  //     delete f.second;
+  //   }
+  // mFluids.clear();
+}
+
+bool FluidChunk::step(float evap)
+{
+  bool result = false;
+  for(int i = 0; i < totalSize; i++)
+    {
+      if(mFluids[i])
+        {
+          result |= mFluids[i]->step(evap);
+          if(mFluids[i]->isEmpty())
+            {
+              result = true;
+              delete mFluids[i];
+              mFluids[i] = nullptr;
+              mNumFluids--;
+            }
+        }
+    }
+  return result;
 }
 
 int FluidChunk::serialize(std::vector<uint8_t> &dataOut) const
 {
+  /*
   static const int fluidSize = Fluid::dataSize + sizeof(int32_t);
   dataOut.resize(mFluids.size() * fluidSize);
   int offset = 0;
@@ -141,9 +176,12 @@ int FluidChunk::serialize(std::vector<uint8_t> &dataOut) const
       offset += reinterpret_cast<Fluid*>(f.second)->serialize(&dataOut[offset]);
     }
   return offset;
+  */
+  return 0;
 }
 void FluidChunk::deserialize(const std::vector<uint8_t> &dataIn)
 {
+  /*
   static const int fluidSize = Fluid::dataSize + sizeof(int32_t);
   reset();
   
@@ -154,4 +192,5 @@ void FluidChunk::deserialize(const std::vector<uint8_t> &dataIn)
       offset += fluidSize;
     }
   mDirty = true;
+  */
 }

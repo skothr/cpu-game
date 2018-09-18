@@ -4,6 +4,7 @@
 #include "block.hpp"
 #include "vector.hpp"
 #include "indexing.hpp"
+#include "meshing.hpp"
 #include <array>
 #include <unordered_map>
 #include <unordered_set>
@@ -16,9 +17,9 @@ class Chunk
 {
 public:
   // size
-  static const int shiftX = 5;
-  static const int shiftY = 5;
-  static const int shiftZ = 5;
+  static const int shiftX = 6;
+  static const int shiftY = 6;
+  static const int shiftZ = 6;
   static const int sizeX = (1 << shiftX);
   static const int sizeY = (1 << shiftY);
   static const int sizeZ = (1 << shiftZ);
@@ -42,6 +43,11 @@ public:
   Chunk(const Point3i &worldPos);
   //Chunk(const Point3i &worldPos, const std::array<Block, totalSize> &data);
 
+  bool calcBounds()
+  { return mBounds.calcBounds(this); }
+  ChunkBounds* getBounds()
+  { return &mBounds; }
+  
   void setWorldPos(const Point3i &pos)
   { mWorldPos = pos; }
   Point3i pos() const { return mWorldPos; }
@@ -57,28 +63,30 @@ public:
   block_t getType(const Point3i &bp) const;
   std::array<block_t, totalSize>& data();
   const std::array<block_t, totalSize>& data() const;
+
+  std::unordered_map<int, ComplexBlock*>& getComplex()
+  { return mComplex; }
   
-  //FluidData& getFluid(int bx, int by, int bz);
-  //FluidData& getFluid(const Point3i &bp);
-
-  //std::unordered_map<int, FluidData*> getFluids();
-
   // setting
   bool setBlock(int bx, int by, int bz, block_t type);
   bool setBlock(const Point3i &bp, block_t type);
-  //void setData(const std::array<Block, totalSize> &data);//, const std::unordered_map<int, FluidData> &fluids);
+  
+  bool setComplex(int bx, int by, int bz, CompleteBlock block);
+  bool setComplex(const Point3i &bp, CompleteBlock block);
+
+  Chunk* getNeighbor(blockSide_t side);
+  void setNeighbor(blockSide_t side, Chunk *neighbor);
+  void unsetNeighbor(blockSide_t side);
+
+  void update();
   
   // updating
-  bool isPriority() { return mPriority; }
-  void setPriority(bool priority) { mPriority = priority; }
   bool isDirty() { return mDirty; }
   void setDirty(bool dirty) { mDirty = dirty; }
   bool needsSave() { return mNeedSave; }
   void setNeedSave(bool needSave) { mNeedSave = needSave; }
-  bool isIncomplete() { return mIncomplete; }
-  void setIncomplete(bool incomplete) { mIncomplete = incomplete; }
-
-  bool step(bool evap);
+  bool isReady() { return mReady; }
+  void setReady(bool ready) { mReady = ready; }
 
   // serialization
   int serialize(std::vector<uint8_t> &dataOut) const;
@@ -90,17 +98,15 @@ private:
   static const Indexer<sizeX, sizeY, sizeZ> mIndexer;
   
   Point3i mWorldPos;
+  ChunkBounds mBounds;
   std::array<block_t, totalSize> mBlocks;
-  //std::unordered_map<int, FluidData*> mFluids;
-  //std::unordered_map<int, BlockData*> mActive;
+  std::unordered_map<int, ComplexBlock*> mComplex;
+  std::unordered_map<blockSide_t, Chunk*> mNeighbors;
   
   std::atomic<int> mNumBlocks = 0;
-  //int mNumBytes = totalSize*Block::dataSize;
-  
   std::atomic<bool> mDirty = true;
   std::atomic<bool> mNeedSave = false;
-  std::atomic<bool> mIncomplete = true;
-  std::atomic<bool> mPriority = false;
+  std::atomic<bool> mReady = false;
 
   void reset();
   

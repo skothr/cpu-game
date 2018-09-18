@@ -34,9 +34,6 @@
 #include "pauseWidget.hpp"
 #include "controlInterface.hpp"
 
-
-//#define PLAYER_POS Point2i{0,0}
-
 GameWidget::GameWidget(QWidget *parent)
   : QOpenGLWidget(parent), mMousePos(-1000,-1000)
 {
@@ -62,8 +59,10 @@ GameWidget::GameWidget(QWidget *parent)
                                       LabelDesc("LIGHT", (align_t)(align_t::TOP))});
   mPlayerOverlay->raise();
   mChunkOverlay = new Overlay(this,
-                              { LabelDesc("CHUNKS LOADED", (align_t)(align_t::TOP | align_t::RIGHT)),
-                                LabelDesc("CHUNKS MESHED", (align_t)(align_t::TOP | align_t::RIGHT)) });
+                              { LabelDesc("FRAMERATE", (align_t)(align_t::TOP | align_t::RIGHT)),
+                                LabelDesc("CHUNKS LOADED", (align_t)(align_t::TOP | align_t::RIGHT)),
+                                LabelDesc("CHUNKS MESHED", (align_t)(align_t::TOP | align_t::RIGHT)),
+                                LabelDesc("BLOCKS", (align_t)(align_t::TOP | align_t::RIGHT)) });
   mChunkOverlay->raise();
 
   mPause = new PauseWidget(this);
@@ -88,6 +87,7 @@ GameWidget::GameWidget(QWidget *parent)
   connect(mRenderTimer, SIGNAL(timeout()), this, SLOT(update())); 
   connect(mInfoTimer, SIGNAL(timeout()), SLOT(updateInfo())); 
   connect(mPause, SIGNAL(resumed()), this, SLOT(resume()));
+  connect(mPause, SIGNAL(mainMenu()), this, SLOT(endGame()));
   connect(mPause, SIGNAL(quit()), this, SIGNAL(quit()));
   
   setLayout(mMainLayout);
@@ -135,6 +135,8 @@ void GameWidget::paintGL()
 void GameWidget::resizeGL(int w, int h)
 {
   glViewport(0, 0, w, h);
+
+  mEngine->getWorld()->setScreenSize(Point2i{w, h});
   
   VoxelEngine::ProjDesc proj = mEngine->getProjection();
   proj.aspect = (float)w/(float)h;
@@ -174,6 +176,12 @@ void GameWidget::resume()
   pause(false);
 }
 
+void GameWidget::endGame()
+{
+  stop();
+  mEngine->getWorld()->clear();
+  emit mainMenu();
+}
   
 void GameWidget::updateInfo()
 {
@@ -197,7 +205,7 @@ void GameWidget::updateInfo()
   CompleteBlock b = mEngine->getPlayer()->selectedBlock();
   float lightLevel = 0.0f;
   if(isFluidBlock(b.type))
-    { lightLevel = reinterpret_cast<Fluid*>(b.data)->fluidLevel; }
+    { lightLevel = reinterpret_cast<Fluid*>(b.data)->level; }
   ss << "Level:    " << lightLevel;
   ll->setText(ss.str().c_str());
   tl->setText(("Type:     " + toString(b.type)).c_str());
@@ -208,14 +216,26 @@ void GameWidget::updateInfo()
   int centerChunks = mEngine->getWorld()->centerChunks();
   int chunksLoaded = mEngine->getWorld()->numLoaded();
   int chunksMeshed = mEngine->getWorld()->numMeshed();
+  double fps = mEngine->getFramerate();
 
-  QLabel *cll = mChunkOverlay->getLabel(0);
-  QLabel *cml = mChunkOverlay->getLabel(1);
+  Point3i rad = mEngine->getWorld()->getRadius() * 2 + 1;
+  rad *= Chunk::size;
+  
+  QLabel *fpsl = mChunkOverlay->getLabel(0);
+  QLabel *cll = mChunkOverlay->getLabel(1);
+  QLabel *cml = mChunkOverlay->getLabel(2);
+  QLabel *bl = mChunkOverlay->getLabel(3);
+  ss << fps << " FPS";
+  fpsl->setText(ss.str().c_str());
+  ss.str(""); ss.clear();
   ss << "Loaded:  " << chunksLoaded << " / " << totalChunks;
   cll->setText(ss.str().c_str());
   ss.str(""); ss.clear();
   ss << "Meshed:  " << chunksMeshed << " / " << centerChunks;
   cml->setText(ss.str().c_str());
+  ss.str(""); ss.clear();
+  ss << "Blocks:  " << (rad[0]*rad[1]*rad[2]);
+  bl->setText(ss.str().c_str());
 }
 
 void GameWidget::setTool(block_t type)

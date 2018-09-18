@@ -4,12 +4,12 @@
 #include "block.hpp"
 #include "blockSides.hpp"
 #include "hashing.hpp"
+#include "indexing.hpp"
 #include "chunk.hpp"
 #include "vector.hpp"
 #include "fluid.hpp"
 
-#include <atomic>
-#include <unordered_map>
+#include <array>
 
 class FluidChunk
 {
@@ -35,7 +35,7 @@ public:
   { return Chunk::chunkEdge(bp); }
 
   FluidChunk(const Point3i &worldPos);
-  FluidChunk(const Point3i &worldPos, const std::unordered_map<int32_t, Fluid*> &data);
+  FluidChunk(const Point3i &worldPos, const std::array<Fluid*, totalSize> &data);
 
   void setWorldPos(const Point3i &pos)
   { mWorldPos = pos; }
@@ -45,37 +45,29 @@ public:
 
   // data access
   Fluid* operator[](const Point3i &bp)
-  { return mFluids[Hash::hash(bp)]; }
+  { return mFluids[mIndexer.index(bp)]; }
   Fluid* at(int bx, int by, int bz);
   Fluid* at(const Point3i &bp);
-  Fluid* at(int bi);
-  std::unordered_map<int32_t, Fluid*>& data();
-  const std::unordered_map<int32_t, Fluid*>& data() const;
+  //Fluid* at(int bi);
+  std::array<Fluid*, totalSize>& data();
+  const std::array<Fluid*, totalSize>& data() const;
 
   // setting
   bool set(int bx, int by, int bz, Fluid *data);
   bool set(const Point3i &bp, Fluid *data);
   
   // updating
-  bool isDirty() { return mDirty; }
-  void setDirty(bool dirty) { mDirty = dirty; }
-  bool needsSave() { return mNeedSave; }
-  void setNeedSave(bool needSave) { mNeedSave = needSave; }
-  bool isIncomplete() { return mIncomplete; }
-  void setIncomplete(bool incomplete) { mIncomplete = incomplete; }
-
-  bool step(bool evap);
+  bool step(float evap);
 
   // serialization
   int serialize(std::vector<uint8_t> &dataOut) const;
   void deserialize(const std::vector<uint8_t> &dataIn);
 
 private:
+  static const Indexer<sizeX, sizeY, sizeZ> mIndexer;
   Point3i mWorldPos;
-  std::unordered_map<int32_t, Fluid*> mFluids;
-  std::atomic<bool> mDirty = true;
-  std::atomic<bool> mNeedSave = false;
-  std::atomic<bool> mIncomplete = true;
+  std::array<Fluid*, totalSize> mFluids;
+  int mNumFluids = 0;
 
   void reset();
   static inline int blockX(int wx)

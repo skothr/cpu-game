@@ -116,6 +116,7 @@ std::vector<World::Options> ChunkLoader::getWorlds()
       opt.name = worldName;
       opt.terrain = header.terrain;
       opt.seed = header.seed;
+      opt.playerPos = header.playerPos;
       worlds.push_back(opt);
     }
   return worlds;
@@ -146,7 +147,23 @@ std::vector<std::string> ChunkLoader::listRegions(const std::string &worldDir)
   return regions;
 }
 
-bool ChunkLoader::createWorld(const std::string &worldName, terrain_t terrain, uint32_t seed)
+void ChunkLoader::savePlayerPos(const Point3i &pos)
+{
+  mHeader.playerPos = pos;
+  
+  std::ofstream worldFile(mWorldPath, std::ios::out | std::ios::binary);
+  if(!worldFile.is_open())
+    {
+      LOGE("Failed to open world file to save player pos!");
+      return;
+    }
+  
+  // write header
+  worldFile.write(reinterpret_cast<char*>(&mHeader), sizeof(wDesc::Header));
+}
+
+bool ChunkLoader::createWorld(const std::string &worldName, terrain_t terrain,
+                              uint32_t seed )
 {
   checkWorldDir();
   const std::string worldDir = WORLD_DIR + worldName + "/";
@@ -172,7 +189,7 @@ bool ChunkLoader::createWorld(const std::string &worldName, terrain_t terrain, u
       return false;
     }
   // write header
-  wDesc::Header worldHeader(Vector<uint8_t, 4>{0,0,1,0}, Block::dataSize, terrain, seed);
+  wDesc::Header worldHeader(Vector<uint8_t, 4>{0,0,1,0}, Block::dataSize, terrain, seed, {0,0,0});
   worldFile.write(reinterpret_cast<char*>(&worldHeader), sizeof(wDesc::Header));
   
   return true;
@@ -227,6 +244,8 @@ bool ChunkLoader::loadWorld(const std::string &worldName)
     }
   return true;
 }
+
+
 
 void ChunkLoader::load(Chunk* chunk)
 {

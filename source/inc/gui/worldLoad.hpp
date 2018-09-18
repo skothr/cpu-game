@@ -16,7 +16,7 @@ public:
   virtual ~WorldLoad() { }
   
 signals:
-  void loaded(const World::Options &opt);
+  void loaded(World::Options &opt);
   void back();
 protected slots:
   void setChunkRadiusX(int rx);

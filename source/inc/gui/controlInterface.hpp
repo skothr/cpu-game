@@ -13,6 +13,8 @@ class QTabBar;
 class QStackedLayout;
 class QSlider;
 
+class DisplaySlider;
+
 class VoxelEngine;
 
 class ControlInterface : public QWidget
@@ -35,8 +37,9 @@ protected slots:
   void setDebug(int debug);
   void clearFluids();
   void setFluidSim(int on);
-  void setFluidEvap(int on);
+  void setFluidEvap(double evap);
   void setFluidLevel(int level);
+  void setRaytrace(int on);
   void setChunkRadiusX(int radius);
   void setChunkRadiusY(int radius);
   void setChunkRadiusZ(int radius);
@@ -53,15 +56,24 @@ private:
   QWidget *mTabStackWidget = nullptr;
   QStackedLayout *mTabStack = nullptr;
 
-  QSlider *mXSlider = nullptr;
-  QSlider *mYSlider = nullptr;
-  QSlider *mZSlider = nullptr;
+  DisplaySlider *mXSlider = nullptr;
+  DisplaySlider *mYSlider = nullptr;
+  DisplaySlider *mZSlider = nullptr;
 
-  // active material selection tab
-  QWidget *mMaterialWidget = nullptr;
-  QGridLayout *mMaterialLayout = nullptr;
   QButtonGroup *mMaterialGroup = nullptr;
-  QGroupBox* makeMaterialGroup();
+  
+  // active material selection tab
+  QWidget *mSimpleWidget = nullptr;
+  QGridLayout *mSimpleLayout = nullptr;
+  QGroupBox* makeSimpleGroup();
+  
+  QWidget *mComplexWidget = nullptr;
+  QGridLayout *mComplexLayout = nullptr;
+  QGroupBox* makeComplexGroup();
+  
+  QWidget *mFluidWidget = nullptr;
+  QGridLayout *mFluidLayout = nullptr;
+  QGroupBox* makeFluidGroup();
 
   // physics control tab
   QWidget *mPhysicsWidget = nullptr;
@@ -70,10 +82,10 @@ private:
   QGroupBox* makePhysicsGroup();
 
   // lighting control tab
-  QWidget *mLightWidget = nullptr;
-  QGridLayout *mLightLayout = nullptr;
-  QButtonGroup *mLightGroup = nullptr;
-  QGroupBox* makeLightGroup();
+  QWidget *mRenderWidget = nullptr;
+  QGridLayout *mRenderLayout = nullptr;
+  QButtonGroup *mRenderGroup = nullptr;
+  QGroupBox* makeRenderGroup();
   
   // debug control tab
   QWidget *mDebugWidget = nullptr;

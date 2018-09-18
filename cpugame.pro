@@ -15,15 +15,21 @@ TEMPLATE = app debug_and_release
 CONFIG += c++1z warn_off debug_and_release
 LIBS += -lstdc++fs -pg
 
+#QMAKE_CXX_FLAGS_RELEASE += -march=core-avx2
+#QMAKE_CXX_FLAGS_DEBUG += -march=core-avx2
+
+QMAKE_CXX_FLAGS_RELEASE += -O3 -funroll-all-loops
+
 # sources
-HEADERS += source/inc/gui/gameWidget.hpp source/inc/gui/mainWindow.hpp source/inc/graphics/shader.hpp source/inc/graphics/textureAtlas.hpp source/inc/gui/overlay.hpp source/inc/gui/controlInterface.hpp source/inc/gui/button.hpp source/inc/gui/systemMenu.hpp source/inc/gui/worldCreate.hpp source/inc/gui/worldLoad.hpp source/inc/gui/pauseWidget.hpp source/inc/gui/mainMenu.hpp
+HEADERS += source/inc/gui/gameWidget.hpp source/inc/gui/mainWindow.hpp source/inc/graphics/shader.hpp source/inc/graphics/textureAtlas.hpp source/inc/gui/overlay.hpp source/inc/gui/controlInterface.hpp source/inc/gui/button.hpp source/inc/gui/systemMenu.hpp source/inc/gui/worldCreate.hpp source/inc/gui/worldLoad.hpp source/inc/gui/pauseWidget.hpp source/inc/gui/mainMenu.hpp source/inc/gui/displaySlider.hpp
 SOURCES += source/src/compute/*.cpp source/src/graphics/*.cpp source/src/gui/*.cpp source/src/math/*.cpp source/src/threading/*.cpp source/src/tools/*.cpp source/src/voxels/*.cpp source/src/*.cpp ./libs/FastNoise/*.cpp
+
 #SOURCES += libs/FastNoise/*.cpp
 #SOURCES += libs/tinyobjloader/tiny_obj_loader.cc
 
 # Paths
-DEPENDPATH = ./source/src/compute ./source/src/graphics ./source/src/gui ./source/src/math ./source/src/threading ./source/src/tools ./source/src/voxels ./source/src ./libs/FastNoise
-INCLUDEPATH = ./config ./source/inc/compute ./source/inc/graphics ./source/inc/gui ./source/inc/math ./source/inc/threading ./source/inc/tools ./source/inc/voxels ./source/inc ./libs/FastNoise
+DEPENDPATH = ./source/src/compute ./source/src/graphics ./source/src/gui ./source/src/math ./source/src/threading ./source/src/tools ./source/src/voxels ./source/src ./libs/FastNoise ./libs/FastNoiseSIMD/FastNoiseSIMD
+INCLUDEPATH = ./config ./source/inc/compute ./source/inc/graphics ./source/inc/gui ./source/inc/math ./source/inc/threading ./source/inc/tools ./source/inc/voxels ./source/inc ./libs/FastNoise ./libs/FastNoiseSIMD/FastNoiseSIMD
 
 #OBJECTS_DIR = build/.obj
 #MOC_DIR = build/.moc

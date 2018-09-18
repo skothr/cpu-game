@@ -15,12 +15,15 @@ PauseWidget::PauseWidget(QWidget *parent)
   vb->setSpacing(0);
 
   Button *resumeBtn = new Button("Resume");
+  Button *mainMenuBtn = new Button("Main Menu");
   Button *quitBtn = new Button("Quit");
   connect(quitBtn, SIGNAL(clicked()), this, SIGNAL(quit()));
+  connect(mainMenuBtn, SIGNAL(clicked()), this, SIGNAL(mainMenu()));
   connect(resumeBtn, SIGNAL(clicked()), this, SIGNAL(resumed()));
 
   vb->addStretch(1);
   vb->addWidget(resumeBtn);
+  vb->addWidget(mainMenuBtn);
   vb->addWidget(quitBtn);
   vb->addStretch(1);
 

@@ -6,33 +6,33 @@ const Point3i Chunk::size{sizeX, sizeY, sizeZ};
 
 Chunk::Chunk(const Point3i &worldPos)
   : mWorldPos(worldPos)
-{ }
-/*
-Chunk::Chunk(const Point3i &worldPos, const std::array<block_t, Chunk::totalSize> &data)
-  : Chunk(worldPos)
 {
-  for(int bi = 0; bi < totalSize; bi++)
+  for(auto &side : gBlockSides)
     {
-      mBlocks[bi] = data[bi];
-      block_t &b = mBlocks[bi];
-      if(b.type != block_t::NONE)
-        {
-          mNumBlocks++;
-          if(b.data)
-            {
-              mNumBytes += b.data->dataSize();
-              mFluids.emplace(bi, reinterpret_cast<FluidData*>(b.data));
-            }
-        }
+      mNeighbors.emplace(side, nullptr);
     }
-  mDirty = true;
 }
-*/
+
 bool Chunk::isEmpty() const
 {
   //LOGD("CHUNK BLOCKS: %d", (int)mNumBlocks);
   return mNumBlocks == 0;
 }
+
+
+Chunk* Chunk::getNeighbor(blockSide_t side)
+{
+  return mNeighbors[side];
+}
+void Chunk::setNeighbor(blockSide_t side, Chunk *neighbor)
+{
+  mNeighbors[side] = neighbor;
+}
+void Chunk::unsetNeighbor(blockSide_t side)
+{
+  mNeighbors[side] = nullptr;
+}
+
 
 block_t* Chunk::at(int bi)
 { return &mBlocks[bi]; }
@@ -49,50 +49,17 @@ std::array<block_t, Chunk::totalSize>& Chunk::data()
 const std::array<block_t, Chunk::totalSize>& Chunk::data() const
 { return mBlocks; }
 
-// BlockData* Chunk::getData(const Point3i &bp)
-// {
-//   int bi = mIndexer.index(bp);
-//   auto iter = mFluids.find(bi);
-//   if(iter != mFluids.end())
-//     { return iter->second; }
-//   else
-//     { return nullptr; }
-// }
-
-/*
-FluidData& Chunk::getFluid(int bx, int by, int bz)
-{ return mFluids[mIndexer.index(bx, by, bz)].data; }
-FluidData& Chunk::getFluid(const Point3i &bp)
-{ return mFluids[mIndexer.index(bp)].data; }
-*/
-
-bool Chunk::setBlock(int bx, int by, int bz, block_t type)//, BlockData *data)
+bool Chunk::setBlock(int bx, int by, int bz, block_t type)
 {
   const int bi = mIndexer.index(bx, by, bz);
   block_t &b = mBlocks[bi];
   if((type != block_t::NONE) != (b != block_t::NONE))
     {
-      /*
-      auto fIter = mFluids.find(bi);
-      if(fIter != mFluids.end())
+      if(isComplexBlock(b))
         {
-          if(data && type != block_t::NONE)
-            { // copy data
-              *fIter->second = *reinterpret_cast<FluidData*>(data->copy());
-            }
-          else
-            { // remove data
-              mNumBytes -= fIter->second->dataSize();
-              delete fIter->second;
-              mFluids.erase(bi);
-            }
+          mComplex.erase(bi);
+          mNumBlocks--;
         }
-      else if(data && type != block_t::NONE)
-        { // add new data
-          mNumBytes += data->dataSize();
-          mFluids.emplace(bi, reinterpret_cast<FluidData*>(data->copy()));
-        }
-      */
       b = type;
       if(b != block_t::NONE)
         { mNumBlocks++; }
@@ -101,101 +68,104 @@ bool Chunk::setBlock(int bx, int by, int bz, block_t type)//, BlockData *data)
   else
     { return false; }
 }
-bool Chunk::setBlock(const Point3i &bp, block_t type)//, block_tData *data)
+bool Chunk::setBlock(const Point3i &bp, block_t type)
 {
-  return setBlock(bp[0], bp[1], bp[2], type);//, data);
+  return setBlock(bp[0], bp[1], bp[2], type);
 }
 
-/*
-bool Chunk::setFluid(int bx, int by, int bz, block_t type, const FluidData *data)
+bool Chunk::setComplex(int bx, int by, int bz, CompleteBlock block)
 {
   const int bi = mIndexer.index(bx, by, bz);
   block_t &b = mBlocks[bi];
-  if((type != block_t::NONE) != (b.type != block_t::NONE))
+  if((b != block_t::NONE) != (block.type != block_t::NONE))
     {
-      b.type = type;
-      if(!isFluidblock_t(b))
+      b = block.type;
+      auto iter = mComplex.find(bi);
+      if(iter != mComplex.end())
         {
-          mNumBlocks++;
-          mNumBytes += FluidData::dataSize;
-          b.data = new FluidData(*data);
-          mActive.emplace(bi, b.data);
+          if(block.data)
+            {
+              iter->second = (ComplexBlock*)block.data;
+            }
+          else
+            {
+              mComplex.erase(bi);
+              mNumBlocks--;
+            }
         }
       else
         {
-          mActive[bi] = *data;
+          if(block.data)
+            {
+              mNumBlocks++;
+              mComplex.emplace(bi, (ComplexBlock*)block.data);
+            }
+          else
+            { return false; }
         }
-
+      
+      if(block.data)
+        {
+          auto iterPX = mComplex.find(mIndexer.index(bx+1, by, bz));
+          if(iterPX != mComplex.end() && iterPX->second)
+            {
+              iterPX->second->makeConnection(block);
+              //((ComplexBlock*)block.data)->makeConnection(iterPX->second);
+            }
+          auto iterPY = mComplex.find(mIndexer.index(bx, by+1, bz));
+          if(iterPY != mComplex.end() && iterPY->second)
+            {
+              iterPY->second->makeConnection(block);
+              //((ComplexBlock*)block.data)->makeConnection(iterPY->second);
+            }
+          auto iterPZ = mComplex.find(mIndexer.index(bx, by, bz+1));
+          if(iterPZ != mComplex.end() && iterPZ->second)
+            {
+              iterPZ->second->makeConnection(block);
+              //((ComplexBlock*)block.data)->makeConnection(iterPZ->second);
+            }
+          auto iterNX = mComplex.find(mIndexer.index(bx-1, by, bz));
+          if(iterNX != mComplex.end() && iterNX->second)
+            {
+              iterNX->second->makeConnection(block);
+              //((ComplexBlock*)block.data)->makeConnection(iterNX->second);
+            }
+          auto iterNY = mComplex.find(mIndexer.index(bx, by-1, bz));
+          if(iterNY != mComplex.end() && iterNY->second)
+            {
+              iterNY->second->makeConnection(block);
+              //((ComplexBlock*)block.data)->makeConnection(iterNY->second);
+            }
+          auto iterNZ = mComplex.find(mIndexer.index(bx, by, bz-1));
+          if(iterNZ != mComplex.end() && iterNZ->second)
+            {
+              iterNZ->second->makeConnection(block);
+              //((ComplexBlock*)block.data)->makeConnection(iterNZ->second);
+            }
+        }
       return true;
     }
   else
     { return false; }
 }
-bool Chunk::setFluid(const Point3i &bp, block_t type, const FluidData *data)
+bool Chunk::setComplex(const Point3i &bp, CompleteBlock block)
 {
-  return setFluid(bp[0], bp[1], bp[2], type, data);
+  return setComplex(bp[0], bp[1], bp[2], block);
 }
-*/
 
-/*
-void Chunk::setData(const std::array<block_t, Chunk::totalSize> &data)
+void Chunk::update()
 {
-  reset();
-  mBlocks = data;
-  for(int bi = 0; bi < totalSize; bi++)
+  for(auto &iter : mComplex)
     {
-      block_t &b = mBlocks[bi];
-      if(b.type != block_t::NONE)
-        {
-          mNumBlocks++;
-          if(isFluidblock_t(b.type))
-            {
-              mNumBytes += b.data->dataSize();
-              mFluids.emplace(bi, reinterpret_cast<FluidData*>(b.data));
-            }
-        }
+      iter.second->update();
     }
-  mDirty = true;
-  }*/
+}
 
 void Chunk::reset()
 {
   mNumBlocks = 0;
-  //mNumBytes = totalSize * block_t::dataSize;
   for(auto &b : mBlocks)
     { b = block_t(); }
-  //for(auto &f : mFluids)
-  //{ delete f.second; }
-  //mFluids.clear();
-}
-
-// std::unordered_map<int, FluidData*> Chunk::getFluids()
-// {
-//   return mFluids;
-// }
-
-bool Chunk::step(bool evap)
-{
-  // bool result = false;
-  // std::vector<int> gone;
-  // for(auto &f : mFluids)
-  //   {
-  //     if(evap)
-  //       {
-  //         result |= f.second->step();
-  //       }
-  //     if(f.second->gone())
-  //       { gone.push_back(f.first); }
-  //   }
-  // for(auto &f : gone)
-  //   {
-  //     result = true;
-  //     mNumBlocks--;
-  //     mBlocks[f].type = block_t::NONE;
-  //     // mNumBytes -= mFluids[f]->dataSize();
-  //     // mFluids.erase(f);
-  //   }
-  return false;
 }
 
 // TODO: Run length encoding

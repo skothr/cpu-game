@@ -1,6 +1,10 @@
 #version 330
 
-#define LINE_W 0.05
+uniform mat4 pvm;
+uniform vec3 camPos;
+uniform float fogStart;
+uniform float fogEnd;
+uniform vec3 dirScale;
 
 smooth in vec3 normal;
 smooth in float fog;

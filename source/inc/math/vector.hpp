@@ -566,6 +566,13 @@ typedef Vector3i Point3i;
 typedef Vector4i Point4i;
 
 
+inline Vector3f rotateVec(const Vector3f v, const Vector3f ax, float angle)
+{
+  float cosa = cos(angle);
+  float sina = sin(angle);
+  return (v * cosa) + (crossProduct(ax, v) * sina) + (ax * ax.dot(v) * (1.0f - cosa));
+}
+
 
 #include <QVector3D>
 

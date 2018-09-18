@@ -15,9 +15,9 @@ enum Instruction
    STOP
   };
 
-class cMemory;
+class Memory;
 
-class cCpu
+class Cpu
 {
 public:
   const int bits;  // number of bits
@@ -28,10 +28,10 @@ private:
   const double tickTime;
 
 public:
-  cCpu(int numBits, int numRegs, int cpuSpeed);
+  Cpu(int numBits, int numRegs, int cpuSpeed);
 
   void runProgram(int addr);
-  bool update(double dt, cMemory *memory);
+  bool update(double dt, Memory *memory);
   
 private:
   double mRemaining = 0.0;
@@ -44,7 +44,7 @@ private:
   bool mOverflow = false;
   bool mUnderflow = false;
   
-  void tick(cMemory *memory);
+  void tick(Memory *memory);
 };
 
 #endif // CPU_HPP

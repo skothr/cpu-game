@@ -57,8 +57,6 @@ bool cMeshBuffer::initGL(Shader *shader)
       shader->setAttrBuffer(1, GL_FLOAT, 3 * sizeof(float), 3, sizeof(cSimpleVertex));
       shader->setAttrBuffer(2, GL_FLOAT, 6 * sizeof(float), 3, sizeof(cSimpleVertex));
       shader->setAttrBuffer(3, GL_FLOAT, 9 * sizeof(float), 1, sizeof(cSimpleVertex));
-      //mVbo->release();
-      //mIbo->release();
       mVao->release();
 
       mNumDraw = 0;
@@ -88,25 +86,19 @@ void cMeshBuffer::render()
   if(!empty())
   {
     mVao->bind();
-    mVbo->bind();
-    mIbo->bind();
     glDrawElements(mMode, mNumDraw, GL_UNSIGNED_INT, 0);
-    mVbo->release();
-    mIbo->release();
     mVao->release();
   }
 }
 
 void cMeshBuffer::uploadData(const MeshData &data)
 {
-  //mVao->bind();
   mVbo->bind();
   mIbo->bind();
   mVbo->allocate(data.vertices().data(), sizeof(cSimpleVertex)*data.vertices().size());
   mIbo->allocate(data.indices().data(), sizeof(unsigned int)*data.indices().size());
   mVbo->release();
   mIbo->release();
-  //mVao->release();
   
   mNumDraw = data.indices().size();
 }

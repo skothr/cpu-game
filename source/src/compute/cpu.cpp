@@ -4,8 +4,7 @@
 
 #include <cmath>
 
-
-cCpu::cCpu(int numBits, int numRegs, int cpuSpeed)
+Cpu::Cpu(int numBits, int numRegs, int cpuSpeed)
   : bits(numBits), regs(numRegs), speed(cpuSpeed), maxVal(1 << (numBits-1)),
     tickTime(1.0 / (double)cpuSpeed)
 {
@@ -23,7 +22,7 @@ cCpu::cCpu(int numBits, int numRegs, int cpuSpeed)
     }
 }
 
-bool cCpu::update(double dt, cMemory *memory)
+bool Cpu::update(double dt, Memory *memory)
 {
   mRemaining += dt;
   int numUpdates = (int)std::floor(mRemaining / tickTime);
@@ -35,13 +34,13 @@ bool cCpu::update(double dt, cMemory *memory)
   return true;
 }
 
-void cCpu::runProgram(int addr)
+void Cpu::runProgram(int addr)
 {
   mProgramCounter = addr;
   LOGI("Starting progam at address: 0x%02X", addr);
 }
 
-void cCpu::tick(cMemory *memory)
+void Cpu::tick(Memory *memory)
 {
   if(mProgramCounter >= 0)
     {

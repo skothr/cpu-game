@@ -158,63 +158,6 @@ inline block_t fluidType(int index)
 #define DEFAULT_LIGHT_LEVEL 0
 #define BLOCK_USED_BITS 22
 
-
-/*
-// A data base class for blocks that require more that just a type.
-class BlockData
-{
-public:
-BlockData(bool goneVal)
-: gone(goneVal)
-{ }
-
-virtual BlockData* copy() const = 0;
-virtual int dataSize() const = 0;
-virtual bool step() { }
-virtual int serialize(uint8_t *dataOut) const = 0;
-virtual int deserialize(const uint8_t *dataOut, int bytes) = 0;
-bool gone;
-  
-protected:
-};
-*/
-
- /*
- // Represents every block in a chunk at the top level.
- class Block
- {
- public:
- Block(block_t t = block_t::NONE)
- : type(t)
- { }
- Block(const Block &other)
- : Block(other.type)//, other.data ? other.data->copy() : nullptr)
- {}
- Block& operator=(const Block &other)
- {
- type = other.type;
- //data = other.data ? other.data->copy() : nullptr;
- return *this;
- }
-  
- static const int dataSize = sizeof(block_t);// + sizeof(int);
-  
- block_t type;
- //BlockData *data;
- //int dataIndex; // index to data, if needed
-  
- // void step()
- // {
- //   if(data)
- //     { data->step(); }
- // }
-  
- // modifies pointer and returns leftover bits in pointed-to byte
- int serialize(uint8_t *dataOut) const;
- void deserialize(const uint8_t *dataIn, int bytes);
- };
- */
-
 namespace Block
 {
   static const int dataSize = sizeof(block_t);
@@ -234,19 +177,69 @@ struct CompleteBlock
   BlockData *data = nullptr;
 };
 
-/*
-  class cComplexBlock : public Block
-  {
-  public:
-  cComplexBlock(block_t t = block_t::NONE, blockSide_t sides = blockSide_t::ALL,
-  uint8_t light = DEFAULT_LIGHT_LEVEL )
-  : type(t), activeSides(sides), lightLevel(light)
-  { }
-  };
-*/
+
+class ComplexBlock : public BlockData
+{
+public:
+  ComplexBlock() {}
+  virtual ~ComplexBlock() {}
+
+  virtual block_t type() const = 0;
+  virtual void update() {}
+  virtual void makeConnection(const CompleteBlock &other) {}
+};
 
 
+class Device;
+class DeviceBlock : public ComplexBlock
+{
+public:
+  DeviceBlock();
+  virtual ~DeviceBlock();
 
+  virtual block_t type() const { return block_t::DEVICE; }
+  virtual BlockData* copy() const;
+  virtual void update();
+  virtual void makeConnection(const CompleteBlock &other);
+  
+private:
+  Device *mDevice;
+};
+
+class Cpu;
+class CpuBlock : public ComplexBlock
+{
+public:
+  CpuBlock(int numBits, int numRegs, int cpuSpeed);
+  virtual ~CpuBlock();
+  Cpu* getCpu() { return mCpu; }
+
+  virtual block_t type() const { return block_t::CPU; }
+  virtual BlockData* copy() const;
+  virtual void update();
+  virtual void makeConnection(const CompleteBlock &other);
+  
+private:
+  Cpu *mCpu;
+};
+
+class Memory;
+class MemoryBlock : public ComplexBlock
+{
+public:
+  MemoryBlock(int numBytes, int memSpeed);
+  virtual ~MemoryBlock();
+
+  Memory* getMemory() { return mMemory; }
+
+  virtual block_t type() const { return block_t::MEMORY; }
+  virtual BlockData* copy() const;
+  virtual void update();
+  virtual void makeConnection(const CompleteBlock &other);
+  
+private:
+  Memory *mMemory;
+};
 
 
 #endif // BLOCK_HPP

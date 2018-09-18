@@ -21,20 +21,16 @@ FluidManager::~FluidManager()
     }
   mFluids.unlock();
   mFluids.clear();
+  
   mMeshLock.lock();
   for(auto iter : mMeshData)
-    {
-      delete iter.second;
-    }
-  mMeshData.clear();
-  mMeshLock.unlock();
-  mBoundaries.lock();
-  for(auto iter : mBoundaries)
     {
       if(iter.second)
         { delete iter.second; }
     }
-  mBoundaries.unlock();
+  mMeshData.clear();
+  mMeshLock.unlock();
+  
   mBoundaries.clear();
 }
 
@@ -51,16 +47,15 @@ void FluidManager::setRange(const Point3i &min, const Point3i &max)
   mMax = max;
 }
 
-bool FluidManager::makeFluidChunk(int32_t hash, const std::unordered_map<int32_t, Fluid*> &fluids)
+bool FluidManager::makeFluidChunk(int32_t hash)
 {
-  if(fluids.size() > 0 && pointInRange(Hash::unhash(hash), mMin, mMax))
+  Point3i cp = Hash::unhash(hash);
+  if(pointInRange(cp, mMin, mMax))
     {
-      FluidChunk *fluid = new FluidChunk(Hash::unhash(hash), fluids);
-      if(mFluids.contains(hash))
-        { delete mFluids[hash]; }
-      mFluids.emplace(hash, fluid);
-      fluid->setDirty(true);
-      fluid->setIncomplete(true);
+      if(!mFluids.contains(hash))
+        {
+          mFluids.emplace(hash, new FluidChunk(cp));
+        }
       return true;
     }
   return false;
@@ -72,26 +67,29 @@ bool FluidManager::set(const Point3i &wp, Fluid *fluid)
   if(chunk)
     {
       chunk->set(Chunk::blockPos(wp), fluid);
-      chunk->setDirty(true);
-      chunk->setIncomplete(true);
       return true;
     }
+  else if(fluid)
+    {
+      if(makeFluidChunk(cHash))
+        {
+          mFluids[cHash]->set(Chunk::blockPos(wp), fluid);
+          return true;
+        }
+      else
+        { return false; }
+    }
   else
-    { return makeFluidChunk(cHash, {{Hash::hash(Chunk::blockPos(wp)), fluid}}); }
+    { return false; }
 }
 
-
-
-bool FluidManager::makeFluidChunkLocked(int32_t hash, const std::unordered_map<int32_t, Fluid*> &fluids)
+bool FluidManager::makeFluidChunkLocked(int32_t hash)
 {
-  if(fluids.size() > 0)
+  Point3i cp = Hash::unhash(hash);
+  if(pointInRange(cp, mMin, mMax))
     {
-      FluidChunk *fluid = new FluidChunk(Hash::unhash(hash), fluids);
-      if(mFluids.lockedContains(hash))
-        { delete mFluids.lockedAt(hash); }
-      mFluids.lockedEmplace(hash, fluid);
-      fluid->setDirty(true);
-      fluid->setIncomplete(true);
+      if(!mFluids.lockedContains(hash))
+        { mFluids.lockedEmplace(hash, new FluidChunk(cp)); }
       return true;
     }
   return false;
@@ -103,13 +101,16 @@ bool FluidManager::setLocked(const Point3i &wp, Fluid *fluid)
   if(chunk)
     {
       chunk->set(Chunk::blockPos(wp), fluid);
-      chunk->setDirty(true);
-      chunk->setIncomplete(true);
       return true;
     }
   else
     {
-      return makeFluidChunkLocked(cHash, {{Hash::hash(Chunk::blockPos(wp)), fluid}});
+      if(makeFluidChunkLocked(cHash))
+        {
+          mFluids.lockedAt(cHash)->set(Chunk::blockPos(wp), fluid);
+        }
+      else
+        { return false; }
     }
 }
 
@@ -125,7 +126,7 @@ int FluidManager::numBlocks()
 int FluidManager::numChunks() const
 { return mFluids.size(); }
 
-bool FluidManager::setChunkBoundary(int32_t hash, OuterShell *boundary)
+bool FluidManager::setChunkBoundary(int32_t hash, ChunkBounds *boundary)
 {
   mBoundaries.emplace(hash, boundary);
   return mFluids.contains(hash);
@@ -133,7 +134,6 @@ bool FluidManager::setChunkBoundary(int32_t hash, OuterShell *boundary)
 bool FluidManager::setChunk(int32_t hash, Chunk *chunk)
 {
   mChunks.emplace(hash, chunk);
-  //mFluids[hash]->setDirty(true);
   return true;
 }
 
@@ -148,169 +148,291 @@ std::unordered_map<int32_t, MeshData*> FluidManager::getUpdates()
   return ready;
 }
 
-static const std::array<blockSide_t, 6> sides {{ blockSide_t::PX, blockSide_t::PY,
-                                                    blockSide_t::PZ, blockSide_t::NX,
-                                                    blockSide_t::NY, blockSide_t::NZ }};
-static const std::array<Point3i, 6> sideDirections {{ Point3i{1,0,0}, Point3i{0,1,0},
-                                                      Point3i{0,0,1}, Point3i{-1,0,0},
-                                                      Point3i{0,-1,0}, Point3i{0,0,-1} }};
-static const std::array<int, 4> horizontalDirs {{0,1,3,4}};
 
-std::unordered_map<int32_t, bool> FluidManager::step(bool evapFluids)
+bool updateFluid(Fluid *fluid, const Point3i &wp)
+{
+  
+
+  
+}
+
+
+static const std::array<blockSide_t, 5> sides {{ blockSide_t::PX, blockSide_t::PY,
+                                                    blockSide_t::NX, blockSide_t::NY,
+                                                    blockSide_t::NZ }};
+static const std::array<Point3i, 5> sideDirections {{ Point3i{1,0,0}, Point3i{0,1,0},
+                                                      Point3i{-1,0,0}, Point3i{0,-1,0},
+                                                      Point3i{0,0,-1} }};
+static const std::array<int, 4> horizontalDirs {{0,1,2,3}};
+
+std::unordered_map<int32_t, bool> FluidManager::step(float evapRate)
 {
 #define FLOW 0.1
 #define ZFLOW 1.0
 
   mFluids.lock();
   std::unordered_map<int32_t, bool> updates;
-  std::unordered_set<int32_t> emptyChunks;
-  Fluid *newFluid = new Fluid(block_t::WATER, 1.0f, 1.0f);
-  std::array<FluidChunk*, 6> nChunks;
-  std::array<OuterShell*, 6> nBounds;
-  std::array<Point3i, 6> nPos;
-  std::array<Point3i, 6> ncPos;
-  std::array<Point3i, 6> nbPos;
-  const int pxi = 0;
-  const int pyi = 1;
-  const int pzi = 2;
-  const int nxi = 3;
-  const int nyi = 4;
-  const int nzi = 5;
-  for(auto iter : mFluids)
+  for(auto cIter : mFluids)
     {
-      if(!pointInRange(iter.second->pos(), mMin, mMax))
+      if(cIter.second->step(evapRate))
+        { updates[cIter.first] = true; }
+    }
+
+  Fluid *newFluid = new Fluid();
+
+  for(auto cIter : mFluids)
+    {
+      const hash_t cHash = cIter.first;
+      FluidChunk *chunk = cIter.second;
+      if(!pointInRange(chunk->pos(), mMin, mMax))
         { continue; }
-      std::unordered_set<int32_t> emptied;
-      const hash_t cHash = iter.first;
-      FluidChunk *chunk = iter.second;
-      const Point3i cp = chunk->pos();
-      bool chunkChanged = false;
-      std::array<ActiveBlock*, 6> nBlock = {{nullptr, nullptr, nullptr, nullptr, nullptr, nullptr}};
-      for(auto &fIter : chunk->data())
-        {
-          const int bHash = fIter.first;
-          Fluid *fluid = fIter.second;
-          if(fluid->isEmpty())
-            {
-              emptied.insert(bHash);
-              continue;
-            }
 
-          *newFluid = *fluid;
-          const Point3i bp = Hash::unhash(bHash);
-          const Point3i wp = cp*Chunk::size + bp;
-          for(int i = 0; i < 6; i++)
-            {
-              nPos[i] = wp + sideDirections[i];
-              ncPos[i] = World::chunkPos(nPos[i]);
-              nbPos[i] = Chunk::blockPos(nPos[i]);
-              nChunks[i] = getFluidChunkLocked(nPos[i]);
-              if(!nChunks[i])
-                {
-                  setLocked(nPos[i], nullptr);
-                  nChunks[i] = getFluidChunkLocked(nPos[i]);
-                }
-              nBounds[i] = getBoundary(nPos[i]);
-            }
-          ActiveBlock *bNZ = nullptr;
-          bool fluidFull = true;
-          if(nBounds[nzi])
-            {
-              nBounds[nzi]->lock();
-              bNZ = nBounds[nzi]->getBlock(Hash::hash(nbPos[nzi]));
-              nBounds[nzi]->unlock();
-            }
-          if(!bNZ || !(bool)(bNZ->sides & blockSide_t::PZ) || bNZ->block == block_t::NONE)
-            {
-              Fluid *nzFluid = nChunks[nzi]->at(nbPos[nzi]);
-              if(!nzFluid)
-                {
-                  nChunks[nzi]->set(nbPos[nzi], newFluid);
-                  fIter.second->fluidLevel = 0.0f;
-                  emptied.insert(bHash);
-                  updates[cHash] = true;
-                  updates[Hash::hash(ncPos[nzi])] = true;
-                }
-              else
-                {
-                  float overflow = nzFluid->adjustLevel(fluid->fluidLevel);
-                  fluid->fluidLevel = overflow;
-                  if(overflow > 0.0f)
-                    { fluidFull = true; }
-                  updates[cHash] = true;
-                  updates[Hash::hash(ncPos[nzi])] = true;
-                }
-            }
+      Point3i cOffset = chunk->pos() * FluidChunk::size;
+      Point3i bp;
+      for(bp[2] = 0; bp[2] < FluidChunk::sizeZ; bp[2]++)
+        for(bp[0] = 0; bp[0] < FluidChunk::sizeX; bp[0]++)
+          for(bp[1] = 0; bp[1] < FluidChunk::sizeY; bp[1]++)
+            { // for each fluid block
+              Fluid *fluid = chunk->at(bp);
+              if(!fluid || fluid->isEmpty())
+                { continue; }
 
-          if((bNZ && isSimpleBlock(bNZ->block)) || fluidFull)
-            { // spread out in each direction
-              for(auto s : horizontalDirs)
+              *newFluid = *fluid;
+              
+              Point3i wp = cOffset + bp;
+
+              Point3i nzp = wp - Vector3i{0,0,1};
+              Point3i nzbp = Chunk::blockPos(nzp);
+              ChunkBounds *boundsNZ = getBoundary(nzp);
+              FluidChunk *chunkNZ = getFluidChunkLocked(nzp);
+              ActiveBlock *bNZ = nullptr;
+              if(boundsNZ)
                 {
-                  ActiveBlock *b = nullptr;
-                  Fluid *f = nullptr;
-                  if(nBounds[s])
+                  boundsNZ->lock();
+                  bNZ = boundsNZ->getBlock(Hash::hash(nzbp));
+                  boundsNZ->unlock();
+                }
+              Point3i pzp = wp + Vector3i{0,0,1};
+              Point3i pzbp = Chunk::blockPos(pzp);
+              ChunkBounds *boundsPZ = getBoundary(pzp);
+              FluidChunk *chunkPZ = getFluidChunkLocked(pzp);
+              Fluid *pzFluid = nullptr;
+              ActiveBlock *bPZ = nullptr;
+              if(boundsPZ)
+                {
+                  boundsPZ->lock();
+                  bPZ = boundsPZ->getBlock(Hash::hash(pzbp));
+                  boundsPZ->unlock();
+                }
+              bool fluidFull = false;
+              if(!bNZ)
+                { // no block below this fluid cell
+                  Fluid *nzFluid = chunkNZ ? chunkNZ->at(nzbp) : nullptr;
+                  fluid->falling = true;
+
+                  if(!nzFluid)
                     {
-                      nBounds[s]->lock();
-                      b = nBounds[s]->getBlock(Hash::hash(nbPos[s]));
-                      nBounds[s]->unlock();
+                      makeFluidChunkLocked(Hash::hash(World::chunkPos(nzp)));
+                      chunkNZ = getFluidChunkLocked(nzp);
+                      chunkNZ->set(nzbp, newFluid);
+                      nzFluid = chunkNZ->at(nzbp);
+                      nzFluid->level = 0.0f;
+                      nzFluid->sideLevel = Vector<float, 4>();
+                      nzFluid->nextLevel = 0.0f;
+                      nzFluid->nextSideLevel = Vector<float, 4>();
                     }
-                  if(nChunks[s])
-                    { f = nChunks[s]->at(nbPos[s]); }
 
-                  if(!b || !(bool)(b->sides & oppositeSide(sides[s])))
-                    { // side is open
+                  float overflow = nzFluid->adjustNextLevel(fluid->level);
+                  fluid->nextLevel = 0.0f;
+                  if(overflow > 0.0f)
+                    {
+                      fluidFull = true;
+                      if(!pzFluid)
+                        {
+                          makeFluidChunkLocked(Hash::hash(World::chunkPos(pzp)));
+                          chunkPZ = getFluidChunkLocked(pzp);
+                          chunkPZ->set(pzbp, newFluid);
+                          pzFluid = chunkPZ->at(pzbp);
+                          pzFluid->level = 0.0f;
+                          pzFluid->sideLevel = Vector<float, 4>();
+                          pzFluid->nextLevel = 0.0f;
+                          pzFluid->nextSideLevel = Vector<float, 4>();
+                        }
+                      pzFluid->adjustNextLevel(overflow);
+                    }
+                  for(int i = 0; i < 4; i++)
+                    {
+                      overflow = nzFluid->adjustNextSideLevel(i, fluid->sideLevel[i]);
+                      fluid->nextSideLevel[i] = 0.0f;
+                      if(overflow > 0.0f)
+                       {
+                         fluidFull = true;
+                         if(!pzFluid)
+                           {
+                             makeFluidChunkLocked(Hash::hash(World::chunkPos(pzp)));
+                             chunkPZ = getFluidChunkLocked(pzp);
+                             chunkPZ->set(pzbp, newFluid);
+                             pzFluid = chunkPZ->at(pzbp);
+                             pzFluid->level = 0.0f;
+                             pzFluid->sideLevel = Vector<float, 4>();
+                             pzFluid->nextLevel = 0.0f;
+                             pzFluid->nextSideLevel = Vector<float, 4>();
+                           }
+                         pzFluid->adjustNextLevel(overflow);
+                       }
+                    }
+                }
 
-                      float pressure = fluid->fluidLevel - (f ? (f->fluidLevel) : 0);
+              if(bNZ || fluidFull)
+                { // block or full fluid below.
+                  fluid->falling = false;
+                  
+                  for(int s = 0; s < 4; s++)
+                    {
+                      Point3i sp = wp + sideDirections[s];
+                      Point3i sbp = Chunk::blockPos(sp);
+                      ChunkBounds *sbounds = getBoundary(sp);
+                      FluidChunk *schunk = getFluidChunkLocked(sp);
+                      if(!schunk)
+                        {
+                          makeFluidChunkLocked(Hash::hash(World::chunkPos(sp)));
+                          schunk = getFluidChunkLocked(sp);
+                        }
+                      Fluid *sfluid = schunk->at(sbp);
+                      if(!sfluid)
+                        {
+                          schunk->set(sbp, newFluid);
+                          sfluid = schunk->at(sbp);
+                          sfluid->level = 0.0f;
+                          sfluid->sideLevel = Vector<float, 4>();
+                          sfluid->nextLevel = 0.0f;
+                          sfluid->nextSideLevel = Vector<float, 4>();
+                        }
+                      ActiveBlock *sblock = nullptr;
+                      if(sbounds)
+                        {
+                          sbounds->lock();
+                          sblock = sbounds->getBlock(Hash::hash(sbp));
+                          sbounds->unlock();
+                        }
 
-                      float flowFull = 0.2f;
-                      float flowEmpty = 0.2f;
-                      if(pressure > 0)
-                        { // apply pressure
-                          if(!f)
-                            { // add fluid cell
-                              newFluid->fluidLevel = 0.0f;
-                              setLocked(nPos[s], newFluid);
-                              f = getFluidChunkLocked(nPos[s])->at(nbPos[s]);
+                      if(!sblock)
+                        { // side is open
+                          float pressure = fluid->level - (sfluid ? (sfluid->level): 0);
+                          const float flow = 0.1f;
+                          if(pressure > 0.0f)
+                            { // apply pressure
+                              Point3i snzp = sp - Vector3i{0,0,1};
+                              Point3i snzbp = Chunk::blockPos(snzp);
+                              ChunkBounds *snzbounds = getBoundary(snzp);
+                              FluidChunk *snzchunk = getFluidChunkLocked(snzp);
+                              if(!snzchunk)
+                                {
+                                  makeFluidChunkLocked(Hash::hash(World::chunkPos(snzp)));
+                                  snzchunk = getFluidChunkLocked(snzp);
+                                }
+                              Fluid *snzfluid = snzchunk->at(snzbp);
+                              if(!snzfluid)
+                                {
+                                  snzchunk->set(snzbp, newFluid);
+                                  snzfluid = snzchunk->at(snzbp);
+                                  snzfluid->level = 0.0f;
+                                  snzfluid->sideLevel = Vector<float, 4>();
+                                  snzfluid->nextLevel = 0.0f;
+                                  snzfluid->nextSideLevel = Vector<float, 4>();
+                                }
+                              ActiveBlock *snzblock = nullptr;
+                              if(snzbounds)
+                                {
+                                  snzbounds->lock();
+                                  snzblock = snzbounds->getBlock(Hash::hash(snzbp));
+                                  snzbounds->unlock();
+                                }
+                              if(!snzblock)
+                                {
+                                  float overflow = snzfluid->adjustNextSideLevel((s+2)%4, pressure*flow);
+                                  fluid->adjustNextLevel(-(pressure * flow) + overflow);
+                                  updates[Hash::hash(World::chunkPos(snzp))] = true;
+                                }
+                              else
+                                {
+                                  float overflow = sfluid->adjustNextLevel(pressure*flow);
+                                  fluid->adjustNextLevel(-(pressure * flow) + overflow);
+                                  updates[Hash::hash(World::chunkPos(sp))] = true;
+                                }
+                              updates[Hash::hash(World::chunkPos(wp))] = true;
                             }
-                          float flow = lerp(flowEmpty, flowFull, 1.0f - pressure);
-                          float overflow = f->adjustLevel(pressure * flow);
-                          fluid->adjustLevel(-pressure * flow + overflow);
-                          updates[cHash] = true;
-                          updates[Hash::hash(ncPos[s])] = true;
-                          if(f->isEmpty())
-                            { emptied.insert(Hash::hash(nbPos[s])); }
                         }
                     }
                 }
             }
-        }
-      for(auto f : emptied)
-        { chunk->set(Hash::unhash(f), nullptr); }
-      if(chunk->step(evapFluids))
-        { updates[cHash] = true; }
-      if(chunk->isEmpty())
-        { emptyChunks.insert(cHash); }
     }
 
   delete newFluid;
   mFluids.unlock();
   
+  std::unordered_set<int32_t> emptyChunks;
+  for(auto &cIter : mFluids)
+    {
+      hash_t cHash = cIter.first;
+      FluidChunk *chunk = cIter.second;
+      Point3i bp;
+      for(bp[0] = 0; bp[0] < FluidChunk::sizeX; bp[0]++)
+        for(bp[1] = 0; bp[1] < FluidChunk::sizeY; bp[1]++)
+          for(bp[2] = 0; bp[2] < FluidChunk::sizeZ; bp[2]++)
+            { // for each fluid block
+              Fluid *fluid = chunk->at(bp);
+              if(fluid)
+                {
+                  fluid->level = fluid->nextLevel;
+                  fluid->sideLevel = fluid->nextSideLevel;
+                  
+                  if(fluid->isEmpty())
+                    { chunk->set(bp, nullptr); }
+                }
+            }
+      if(chunk->isEmpty())
+        { emptyChunks.insert(cHash); }
+    }
   for(auto &c : emptyChunks)
     {
-      updates[c] = true;
-      mFluids.erase(c);
-      
+      mFluids.lockedErase(c);
       std::lock_guard<std::mutex> lock(mMeshLock);
       auto iter = mMeshData.find(c);
       if(iter != mMeshData.end())
         { delete iter->second; }
       mMeshData[c] = nullptr;
     }
+    
   for(auto iter : updates)
     {
-      if(iter.second && emptyChunks.count(iter.first) == 0)
+      if(iter.second)
         { makeMesh(iter.first); }
     }
+  
+  for(auto &cIter : mFluids)
+    {
+      hash_t cHash = cIter.first;
+      FluidChunk *chunk = cIter.second;
+      Point3i bp;
+      for(bp[0] = 0; bp[0] < FluidChunk::sizeX; bp[0]++)
+        for(bp[1] = 0; bp[1] < FluidChunk::sizeY; bp[1]++)
+          for(bp[2] = 0; bp[2] < FluidChunk::sizeZ; bp[2]++)
+            { // for each fluid block
+              Fluid *fluid = chunk->at(bp);
+              if(fluid && !fluid->falling)
+                {
+                  for(int i = 0; i < 4; i++)
+                    {
+                      fluid->level += fluid->sideLevel[i];
+                      fluid->sideLevel[i] = 0.0f;
+                      fluid->nextSideLevel[i] = 0.0f;
+                    }
+                  fluid->nextLevel = fluid->level;
+                }
+            }
+    }
+
   return updates;
 }
 
@@ -322,7 +444,7 @@ FluidChunk* FluidManager::getFluidChunkLocked(const Point3i &wp)
 {
   return mFluids.lockedAt(Hash::hash(World::chunkPos(wp)));
 }
-OuterShell* FluidManager::getBoundary(const Point3i &wp)
+ChunkBounds* FluidManager::getBoundary(const Point3i &wp)
 {
   return mBoundaries[Hash::hash(World::chunkPos(wp))];
 }
@@ -365,55 +487,203 @@ static std::unordered_map<blockSide_t, std::array<cSimpleVertex, 4>> faceVertice
      cSimpleVertex(Point3f{0, 1, 0}, Vector3f{0, 0, -1}, Vector2f{1.0f, 0.0f} ) } } };
 
 
+
+struct FaceRect
+{
+  FaceRect(blockSide_t ddir, const Point3f &pp1,const Point3f &pp2)
+    : dir(ddir), p1(pp1), p2(pp2)
+  { }
+  blockSide_t dir;
+  Point3f p1; 
+  Point3f p2;
+};
+
+
+
+std::vector<Vector3f> normals =
+  {Vector3f{1,0,0},   // PX
+   Vector3f{0,1,0},   // PY
+   Vector3f{-1,0,0},  // NX
+   Vector3f{0,-1,0}}; // NY
+std::vector<Vector3f> startPos =
+  {Vector3f{1,0,0},   // PX
+   Vector3f{1,1,0},   // PY
+   Vector3f{0,1,0},   // NX
+   Vector3f{0,0,0}};  // NY
+std::vector<blockSide_t> blockSides =
+  {blockSide_t::PX,   // PX
+   blockSide_t::PY,   // PY
+   blockSide_t::NX,   // NX
+   blockSide_t::NY};  // NY
+std::vector<FaceRect> getFluidRects(Fluid *fluid)
+{
+  std::vector<FaceRect> rects;
+  //LOGD("%f", fluid->level);
+
+  if(fluid->level > 0.0f)
+    { // bottom rect
+      rects.emplace_back(blockSide_t::NZ, Point3i{0,0,0}, Point3i{1,1,0});
+
+      // level sides
+      for(int i = 0; i < 4; i++)
+        {
+          const int left = (i+1)%4;
+          const int opposite = (i+2)%4;
+          const int right = (i+3)%4;
+          const float sLevel = fluid->sideLevel[i];
+          const float rLevel = fluid->sideLevel[right];
+          const float lLevel = fluid->sideLevel[left];
+          if(fluid->sideLevel[i] == 0.0f)
+            {
+              FaceRect r{blockSides[i], startPos[i],
+                         startPos[i] + normals[left] + Vector3f{0,0,fluid->level}};
+              r.p1 += normals[left] * rLevel;
+              r.p2 += normals[right] * lLevel;
+              rects.emplace_back(r);
+            }
+        }
+      //level top
+      FaceRect r({blockSide_t::PZ,
+                  Vector3f{0,0,fluid->level},
+                  Vector3f{1,1,fluid->level}});
+
+      r.p1 += normals[0]*fluid->sideLevel[2] + normals[1]*fluid->sideLevel[3];
+      r.p2 += normals[2]*fluid->sideLevel[0] + normals[3]*fluid->sideLevel[1];
+      rects.push_back(r);
+    }
+
+  for(int i = 0; i < 4; i++)
+    {
+      const int left = (i+1)%4;
+      const int opposite = (i+2)%4;
+      const int right = (i+3)%4;
+      const Vector3f base = startPos[i];
+      const float sLevel = fluid->sideLevel[i];
+
+      if(fluid->sideLevel[i] > 0.0f)
+      {
+        // side outer face
+        rects.emplace_back(blockSides[i], base, base + normals[left] + Vector3f{0,0,1});
+
+        // side inner face
+        FaceRect ri {blockSides[opposite], base, base + normals[left]};
+        // adjust points away from side face
+        ri.p1 -= normals[i] * sLevel;
+        ri.p2 -= normals[i] * sLevel;
+        // adjust p1 updward due to fluid level
+        ri.p1[2] += fluid->level;
+        // adjust p1 inward due to right side level
+        ri.p1 += normals[left] * fluid->sideLevel[right];
+        // extends to top
+        ri.p2[2]  = 1.0f;
+        // adjust p2 inward due to left side level
+        ri.p2 += normals[right] * fluid->sideLevel[left];
+        rects.push_back(ri);
+
+        // side top face
+        FaceRect rt {blockSide_t::PZ, base + normals[opposite]*fluid->sideLevel[i],
+                     base + normals[left]};
+        rt.p1[2] = 1.0f; // both points on top
+        rt.p2[2] = 1.0f;
+      
+        if((i % 2 == 0))
+          { // only mesh top corners on two sides
+            rt.p1 += normals[left] * fluid->sideLevel[right];
+            rt.p2 += normals[right] * fluid->sideLevel[left];
+          }
+        rects.push_back(rt);
+
+        //side outer side faces
+        if(fluid->sideLevel[right] == 0.0f)
+          {
+            FaceRect rr {blockSides[right], base + normals[opposite]*fluid->sideLevel[i],
+                         base + Vector3i{0,0,1}};
+            rects.push_back(rr);
+          }
+        if(fluid->sideLevel[left] == 0.0f)
+          {
+            FaceRect rl {blockSides[left], base + normals[opposite]*fluid->sideLevel[i] + normals[left],
+                         base + normals[left] + Vector3i{0,0,1}};
+            rects.push_back(rl);
+          }
+      }
+    }
+  return rects;
+}
+
 void FluidManager::makeMesh(int32_t hash)
 {
   FluidChunk *chunk = mFluids[hash];
-  if(!chunk)
+  ChunkBounds *bounds = mBoundaries[hash];
+  if(!chunk || !bounds)
     { return; }
+  
+  bounds->lock();
+  auto shell = bounds->getBounds();
+  bounds->unlock();
   
   Point3i cp = chunk->pos();
   Point3i minP = cp*Chunk::size;
-  
-  if(chunk)
-    {
-      MeshData *mesh = new MeshData();
-      for(auto cIter : chunk->data())
+  MeshData *mesh = new MeshData();
+  Point3i bp;
+  for(bp[0] = 0; bp[0] < FluidChunk::sizeX; bp[0]++)
+    for(bp[1] = 0; bp[1] < FluidChunk::sizeY; bp[1]++)
+      for(bp[2] = 0; bp[2] < FluidChunk::sizeZ; bp[2]++)
         {
-          int32_t cHash = cIter.first;
-          Point3i bp = Hash::unhash(cHash);
-          Fluid *fluid = cIter.second;
-          if(!fluid->isEmpty())
-            {             
+          Fluid *fluid = chunk->at(bp);
+          if(fluid && !fluid->isEmpty())
+            {
               const Point3f vOffset = minP + bp;
-              for(int i = 0; i < 6; i++)
+              std::vector<FaceRect> rects = getFluidRects(fluid);
+              //LOGD("RECTS: %d", rects.size());
+              
+              for(auto r : rects)
                 {
+                  Vector3i sdir = sideDirections[(int)r.dir];
+                  int dim = sideDim(r.dir);
+                  auto iter = shell.find(Hash::hash(bp + sdir));
+                  bool draw = true;
+                  for(auto &v : faceVertices[r.dir])
+                    { // add vertices for this face
+                      if(std::abs(v.pos[dim] + sdir[dim]*0.0001) > 1.0f)
+                        {
+                          draw = false;
+                          break;
+                        }
+                    }
+
+                  if(!draw && iter != shell.end() &&
+                     iter->second.block != block_t::NONE &&
+                     (iter->second.sides & oppositeSide(r.dir)) != blockSide_t::NONE)
+                    { continue; }
+                      
                   const unsigned int numVert = mesh->vertices().size();
-                  for(auto &v : faceVertices[sides[i]])
+                  for(auto &v : faceVertices[r.dir])
                     { // add vertices for this face
                       Point3f vp = v.pos;
-                      if(vp[2] != 0)
-                        { vp[2] *= fluid->fluidLevel; }
+                      vp[0] = (vp[0] == 0 ? std::min(r.p1[0], r.p2[0]) : std::max(r.p1[0], r.p2[0]));
+                      vp[1] = (vp[1] == 0 ? std::min(r.p1[1], r.p2[1]) : std::max(r.p1[1], r.p2[1]));
+                      vp[2] = (vp[2] == 0 ? std::min(r.p1[2], r.p2[2]) : std::max(r.p1[2], r.p2[2]));
                       mesh->vertices().emplace_back(vOffset + vp,
                                                     v.normal,
                                                     v.texcoord,
                                                     (int)fluid->type - 1,
-                                                    (float)4 / (float)4 );
+                                                    (float)3 / (float)4 );
                     }
                   for(auto i : faceIndices)
                     { mesh->indices().push_back(numVert + i); }
                 }
             }
         }
-      std::lock_guard<std::mutex> lock(mMeshLock);
-      auto iter = mMeshData.find(hash);
-      if(iter != mMeshData.end())
-        {
-          delete iter->second;
-          iter->second = mesh;
-        }
-      else
-        {
-          mMeshData.emplace(hash, mesh);
-        }
+  std::lock_guard<std::mutex> lock(mMeshLock);
+  auto iter = mMeshData.find(hash);
+  if(iter != mMeshData.end())
+    {
+      delete iter->second;
+      iter->second = mesh;
+    }
+  else
+    {
+      mMeshData.emplace(hash, mesh);
     }
 }

@@ -17,9 +17,14 @@ public:
 
   Point3f getPos() const;
   Vector3f getEye() const;
+  Vector3f getEyeRight() const;
+  Vector3f getEyeUp() const;
   Point3f getCenter() const;
   Matrix4 getView() const;
   Matrix4 getProjection() const;
+
+  float getAspect() const;
+  float getFov() const;
 
   Vector3f getForward() const { return mForward; }
   Vector3f getUp() const { return mUp; }

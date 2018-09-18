@@ -77,7 +77,7 @@ protected:
   Vector3f mSelectRay;
 
   Shader *mWireShader = nullptr;
-  cModelObj mHighlightModel;
+  ModelObj mHighlightModel;
   CompleteBlock mSelectedBlock = {block_t::NONE, nullptr};
   Point3i mSelectedPos;
   Vector3i mSelectedFace;

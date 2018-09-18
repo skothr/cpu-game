@@ -25,14 +25,14 @@ VoxelEngine::~VoxelEngine()
   delete mWorld;
 }
 
-bool VoxelEngine::loadWorld(const World::Options &opt)
+bool VoxelEngine::loadWorld(World::Options &opt)
 {
-  mWorld->setCenter(START_CHUNK);
+  //mWorld->setCenter(START_CHUNK);
   return mWorld->loadWorld(opt);
 }
-bool VoxelEngine::createWorld(const World::Options &opt)
+bool VoxelEngine::createWorld(World::Options &opt)
 {
-  mWorld->setCenter(START_CHUNK);
+  //mWorld->setCenter(START_CHUNK);
   return mWorld->createWorld(opt);
 }
 
@@ -59,6 +59,7 @@ void VoxelEngine::stop()
 {
   if(mRunning)
     {
+      mWorld->setPlayerPos(mPlayer->getPos());
       LOGI("Stopping voxel engine...");
       LOGI("  Stopping physics...");
       stopPhysics();
@@ -120,7 +121,12 @@ void VoxelEngine::stepPhysics(int us)
       if(mWorld->readyForPlayer())
         {
           ready = true;
-          //mPlayer->setPos(mWorld->getStartPos(PLAYER_START_POS));
+          mPlayer->setPos(mWorld->getStartPos());
+        }
+      else
+        {
+          Point3f ppos = mWorld->getStartPos();
+          mPlayer->setPos(Point3f{ppos[0], ppos[1], 100.0f});
         }
     }
   else if(!mPaused)
@@ -141,7 +147,11 @@ bool VoxelEngine::initGL(QObject *qParent)
 
       // initialize
       LOGI("  Initializing world GL...");
-      mWorld->initGL(qParent);
+      if(!mWorld->initGL(qParent))
+        {
+          LOGE("  World GL initialization falied! Exiting...");
+          exit(1);
+        }
       LOGI("  Initializing player GL...");
       if(!mPlayer->initGL(qParent))
         {
@@ -151,7 +161,7 @@ bool VoxelEngine::initGL(QObject *qParent)
 
       LOGI("Voxel engine GL initialized.");
       mInitialized = true;
-    }  
+    }
   return true;
 }
 
@@ -169,7 +179,12 @@ void VoxelEngine::cleanUpGL()
     }
 }
 
-double VoxelEngine::printFps() const
+double VoxelEngine::getFramerate() const
+{
+  return mFramerate;
+}
+
+double VoxelEngine::printFps()
 {
   if(mInitialized)
     {
@@ -179,24 +194,22 @@ double VoxelEngine::printFps() const
       auto time = std::chrono::steady_clock::now();
 
       double result = 0.0;
-      double dt = (double)std::chrono::duration_cast<std::chrono::nanoseconds>(time - lastTime).count() / 1000000000.0;
+      double dt = (std::chrono::duration_cast<std::chrono::nanoseconds>(time - lastTime).count() /
+                   1000000000.0 );
       printCounter += dt;
       numIterations++;
 
       static float t = 0.0;
       t += 0.1;
 
-      if(printCounter > 2.0)
+      if(printCounter > 0.5)
         {
-          double framerate = (double)numIterations / printCounter;
-          LOGI("RENDER FRAMERATE: %f", framerate);
-
+          mFramerate = (double)numIterations / printCounter;
           printCounter = 0.0;
           numIterations = 0;
-          result = framerate;
         }
       lastTime = time;
-      return result;
+      return mFramerate;
     }
   else
     { return 0.0f; }

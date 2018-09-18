@@ -23,8 +23,8 @@ public:
   virtual ~MainWindow();
 
 public slots:
-  void createWorld(const World::Options &options);
-  void loadWorld(const World::Options &options);
+  void createWorld(World::Options &options);
+  void loadWorld(World::Options &options);
 protected slots:
   void quit();
   

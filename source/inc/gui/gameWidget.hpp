@@ -14,7 +14,6 @@ class ControlInterface;
 class PauseWidget;
 class Overlay;
 
-
 class QTimer;
 class QStackedLayout;
 class QGridLayout;
@@ -38,12 +37,16 @@ public:
 signals:
   void paused();
   void resumed();
+  void mainMenu();
   void quit();
              
 public slots:
   void updateInfo();
   void resume();
 
+protected slots:
+  void endGame();
+  
 protected:
   void initializeGL();
   void paintGL();

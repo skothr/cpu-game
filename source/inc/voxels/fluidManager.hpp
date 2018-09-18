@@ -7,7 +7,7 @@
 
 class MeshData;
 class ChunkMesh;
-class OuterShell;
+class ChunkBounds;
 class Chunk;
 class Fluid;
 class FluidChunk;
@@ -19,11 +19,14 @@ public:
   FluidManager();
   ~FluidManager();
 
-  bool makeFluidChunk(int32_t hash, const std::unordered_map<int32_t, Fluid*> &fluids);
-  bool setChunkBoundary(int32_t hash, OuterShell *boundary);
+  bool makeFluidChunk(int32_t hash);
+  bool setChunkBoundary(int32_t hash, ChunkBounds *boundary);
   bool setChunk(int32_t hash, Chunk *chunk);
-  std::unordered_map<int32_t, bool> step(bool evapFluids);
+  std::unordered_map<int32_t, bool> step(float evapRate);
   void setRange(const Point3i &min, const Point3i &max);
+
+  FluidChunk* getChunk(int32_t hash)
+  { return mFluids[hash]; }
 
   //bool uploadMesh(int32_t hash, ChunkMesh *mesh);
   //bool renderMeshes();
@@ -37,18 +40,18 @@ public:
 private:
   ThreadMap<FluidChunk*> mFluids;
   ThreadMap<Chunk*> mChunks;
-  ThreadMap<OuterShell*> mBoundaries;
+  ThreadMap<ChunkBounds*> mBoundaries;
   std::mutex mMeshLock;
   std::unordered_map<int32_t, MeshData*> mMeshData;
 
   Point3i mMin;
   Point3i mMax;
   
-  OuterShell* getBoundary(const Point3i &wp);
+  ChunkBounds* getBoundary(const Point3i &wp);
   FluidChunk* getFluidChunk(const Point3i &wp);
   void makeMesh(int32_t hash);
   
-  bool makeFluidChunkLocked(int32_t hash, const std::unordered_map<int32_t, Fluid*> &fluids);
+  bool makeFluidChunkLocked(int32_t hash);
   FluidChunk* getFluidChunkLocked(const Point3i &wp);
   bool setLocked(const Point3i &wp, Fluid *fluid);  
 };

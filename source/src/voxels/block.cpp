@@ -1,55 +1,99 @@
 #include "block.hpp"
 #include "world.hpp"
 
-#include "fluid.hpp"
+#include "device.hpp"
+#include "cpu.hpp"
+#include "memory.hpp"
 
-/*
-void Block::updateOcclusion()
-{
-  occlusion = ((type == block_t::NONE) ? 0 : 1);
-}
-bool Block::active() const
-{ return type != block_t::NONE && activeSides != blockSide_t::NONE; }
-bool Block::active(blockSide_t side) const
-{ return type != block_t::NONE && (activeSides & side) != blockSide_t::NONE; }
 
-bool Block::activeEmpty(blockSide_t side)
+DeviceBlock::DeviceBlock()
+  : mDevice(new Device())
+{ }
+
+DeviceBlock::~DeviceBlock()
 {
-  activeSides |= side;
-  return type != block_t::NONE;
+  delete mDevice;
 }
-bool Block::activeMirror(blockSide_t side)
+
+BlockData* DeviceBlock::copy() const
 {
-  activeSides &= ~side;
-  return type != block_t::NONE;
+  return new DeviceBlock(*this);
 }
-*/
-// int Block::serialize(uint8_t *dataOut) const
+void DeviceBlock::makeConnection(const CompleteBlock &other)
+{
+  LOGD("Device making connection!");
+  if(other.type == block_t::MEMORY)
+    {
+      mDevice->addMemory(reinterpret_cast<MemoryBlock*>(other.data)->getMemory());
+      LOGD("Connected to memory!");
+    }
+  else if(other.type == block_t::CPU)
+    {
+      mDevice->addCpu(reinterpret_cast<CpuBlock*>(other.data)->getCpu());
+      LOGD("Connected to cpu!");
+    }
+}
+// void DeviceBlock::removeConnection(const CompleteBlock &other)
 // {
-//   dataOut[0] = (uint8_t)type;
-//   int bytes = dataSize;
-//   //std::memcpy((void*)dataOut, (void*)&type, dataSize);
-//   // if(data)
-//   //   {
-//   //     if(isFluidBlock(type))
-//   //       {
-//   //         bytes += reinterpret_cast<FluidData*>(data)->serialize(dataOut+dataSize);
-//   //       }
-//   //   }
-//   return bytes;
+//   if(other.type == block_t::MEMORY)
+//     {
+
+//     }
+//   else if(other.type == block_t::CPU)
+//     {
+      
+//     } 
 // }
-// void Block::deserialize(const uint8_t *dataIn, int bytes)
-// {
-//   //std::memcpy((void*)&type, (void*)dataIn, dataSize);
-//   type = (block_t)dataIn[0];
-//   // if(data)
-//   //   {
-//   //     delete data;
-//   //     data = nullptr;
-//   //   }
-//   // if(bytes > dataSize)
-//   //   {
-//   //     if(isFluidBlock(type))
-//   //       { data = new FluidData(dataIn+dataSize, bytes-dataSize); }
-//   //   }
-// }
+void DeviceBlock::update()
+{
+  if(mDevice->ready())
+    {
+      mDevice->update();
+    }
+}
+
+CpuBlock::CpuBlock(int numBits, int numRegs, int cpuSpeed)
+  : mCpu(new Cpu(numBits, numRegs, cpuSpeed))
+{ }
+CpuBlock::~CpuBlock()
+{
+  delete mCpu;
+}
+BlockData* CpuBlock::copy() const
+{
+  return new CpuBlock(*this);
+}
+void CpuBlock::update()
+{ }
+void CpuBlock::makeConnection(const CompleteBlock &other)
+{
+  if(other.type == block_t::DEVICE)
+    {
+      LOGD("Memory making connection...");
+      ((ComplexBlock*)other.data)->makeConnection({block_t::CPU, (BlockData*)this});
+    }
+}
+
+MemoryBlock::MemoryBlock(int numBytes, int memSpeed)
+  : mMemory(new Memory(numBytes, memSpeed))
+{ }
+
+MemoryBlock::~MemoryBlock()
+{
+  delete mMemory;
+}
+BlockData* MemoryBlock::copy() const
+{
+  return new MemoryBlock(*this);
+}
+void MemoryBlock::update()
+{ }
+
+void MemoryBlock::makeConnection(const CompleteBlock &other)
+{
+  if(other.type == block_t::DEVICE)
+    {
+      LOGD("Cpu making connection...");
+      ((ComplexBlock*)other.data)->makeConnection({block_t::MEMORY, (BlockData*)this});
+    }
+}

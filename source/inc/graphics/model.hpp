@@ -9,23 +9,23 @@
 #include <vector>
 #include <string>
 
-class cModelObj
+class ModelObj
 {
 public:
-  cModelObj(const std::string &filePath = "");
-  cModelObj(const cModelObj &other) = default;
+  ModelObj(const std::string &filePath = "");
+  ModelObj(const ModelObj &other) = default;
   bool initGL(Shader *shader);
   void cleanupGL();
   void render(Shader *shader, const Matrix4 &pvm);
 
   void setMode(GLenum mode);
   
-  const std::vector<cSimpleVertex>* getVertices() const
+  const std::vector<cTexVertex>* getVertices() const
   { return (mMeshes.size() > 0 ? &mMeshes[0].getVertices() : nullptr); }
   const std::vector<unsigned int>* getIndices() const
   { return (mMeshes.size() > 0 ? &mMeshes[0].getIndices() : nullptr); }
 private:
-  std::vector<cMesh> mMeshes;
+  std::vector<Mesh> mMeshes;
   
   bool loadModel(const std::string &path);
 };

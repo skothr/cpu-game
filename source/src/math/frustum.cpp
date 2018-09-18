@@ -55,9 +55,28 @@ void Frustum::rotate(float pitch, float yaw)
   calcPlanes();
 }
 
+
+float Frustum::getAspect() const
+{
+  return mAspect;
+}
+
+float Frustum::getFov() const
+{
+  return mFov;
+}
+
 Vector3f Frustum::getEye() const
 {
   return (mForward*(1.0 - std::abs(mPitch)) + mUp * (mPitch)).normalized();
+}
+Vector3f Frustum::getEyeRight() const
+{
+  return mRight;
+}
+Vector3f Frustum::getEyeUp() const
+{
+  return (-mForward*mPitch + mUp * (1.0 - std::abs(mPitch))).normalized();
 }
 Point3f Frustum::getPos() const
 {

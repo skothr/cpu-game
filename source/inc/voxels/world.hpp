@@ -11,6 +11,7 @@
 #include "meshing.hpp"
 #include "terrain.hpp"
 #include "fluidManager.hpp"
+#include "hashing.hpp"
 
 #include <mutex>
 #include <atomic>
@@ -23,6 +24,10 @@ class Shader;
 class cTextureAtlas;
 class ChunkLoader;
 class FluidChunk;
+class MeshRenderer;
+class RayTracer;
+class ModelObj;
+
 
 class World
 {
@@ -35,6 +40,7 @@ public:
     std::string name;
     terrain_t terrain;
     uint32_t seed;
+    Point3i playerPos;
     Vector3i chunkRadius;
     int loadThreads;
     int meshThreads;
@@ -43,8 +49,8 @@ public:
   // loading
   std::vector<Options> getWorlds() const;
   bool worldExists(const std::string &name) const;
-  bool loadWorld(const Options &opt);
-  bool createWorld(const Options &opt, bool overwrite = false);
+  bool loadWorld(Options &opt);
+  bool createWorld(Options &opt, bool overwrite = false);
   void updateInfo(const Options &opt);
   void start();
   void stop();
@@ -55,30 +61,30 @@ public:
   int numMeshed();
 
   // rendering
-  void initGL(QObject *qparent);
+  bool initGL(QObject *qparent);
   void cleanupGL();
-  void render(Matrix4 pvm);
+  void render(const Matrix4 &pvm);
 
-  void setDebug(bool debug) { mDebug = debug; }
-  void setFluidSim(bool on) { mSimFluids = on; }
-  void setFluidEvap(bool on) { mEvapFluids = on; }
-  void clearFluids()
-  {
-    LOGDC(COLOR_YELLOW, "CLEARING FLUIDS!!");
-    mFluids.clear();
-    std::lock_guard<std::mutex> lock(mRenderLock);
-    mFluidMeshes.clear();
-  }
+  void setDebug(bool debug);
+  void setFluidSim(bool on);
+  void setFluidEvap(float rate);
+  void setRaytracing(bool on);
+  void clearFluids();
+  void clear();
 
   void setFrustum(Frustum *frustum);
   void setFrustumClip(bool on);
   void setFrustumPause();
 
+  void setScreenSize(const Point2i &size);
+
   // updating
   void update();
   void step();
-  bool readyForPlayer() const;
-  Point3f getStartPos(const Point3i &pPos);
+  bool readyForPlayer();
+  Point3i getPlayerStartPos();
+  Point3f getStartPos();
+  void setPlayerPos(const Point3i &ppos);
   
   void setLightLevel(int level) { mLighting = level; }
   void setCenter(const Point3i &chunkCenter);
@@ -102,18 +108,20 @@ public:
   
 private:
   bool mInitialized = false;
+  bool mRaytrace = false;
   bool mDebug = false;
   bool mSimFluids = true;
-  bool mEvapFluids = true;
-  bool mClipFrustum = true;
-
-  Frustum *mFrustum;
-  std::unordered_map<int32_t, bool> mFrustumRender;
+  float mEvapRate = 0.0;
+  bool mFoundCenter = false;
   
   float mFogStart;
   float mFogEnd;
   Vector3f mDirScale;
   bool mRadChanged = false;
+
+
+  Point3i mPlayerStartPos;
+  bool mPlayerReady = false;
   
   ChunkLoader *mLoader;
   Point3i mCenter;
@@ -125,93 +133,53 @@ private:
   int mLighting = 0;
   Point3f mCamPos;
 
-  
-  struct MeshedChunk
-  {
-    int32_t hash = 0;
-    MeshData mesh;
-  };
-  
   FluidManager mFluids;
-  ThreadPool mMeshPool;
   centerLoopCallback_t mCenterLoopCallback;
   
   // chunk updating / threading
   std::mutex mChunkLock;
-  std::mutex mMeshedLock;
   std::mutex mUnloadLock;
-  std::mutex mRenderLock;
-  std::mutex mRenderQueueLock;
-  std::mutex mFRenderQueueLock;
-  std::mutex mUnusedMCLock;
-  std::mutex mUnloadMeshLock;
   std::mutex mLoadLock;
   std::mutex mBoundaryLock;
-  std::mutex mNeighborLock;
-  std::mutex mMeshLock;
-  std::condition_variable mMeshCv;
     
   int mMaxLoad;
   std::atomic<int> mNumLoading;
   int mCenterDistIndex = 0;
   std::atomic<int> mNumLoaded = 0;
 
-  // active maps
-  std::unordered_map<int32_t, Chunk*> mChunks;
-  std::unordered_map<int32_t, std::unordered_map<blockSide_t, Chunk*>> mNeighbors;
-  std::unordered_map<int32_t, OuterShell*> mChunkBoundaries;
-  std::unordered_map<int32_t, ChunkMesh*> mRenderMeshes;
-  std::unordered_map<int32_t, ChunkMesh*> mFluidMeshes;
-
-  // resource cycling
+  std::unordered_map<hash_t, Chunk*> mChunks;
+  std::unordered_map<hash_t, ChunkBounds*> mChunkBoundaries;
   std::queue<Chunk*> mUnusedChunks;
-  std::queue<ChunkMesh*> mUnusedMeshes;
-  std::queue<MeshedChunk*> mUnusedMC;
-
-  // queues
-  std::queue<MeshedChunk*> mRenderQueue;
-  std::queue<MeshedChunk*> mFRenderQueue;
-  std::unordered_set<int32_t> mUnloadMeshes;
-  std::vector<Chunk*> mMeshQueue;
   std::queue<Chunk*> mLoadQueue;
 
-  // for keeping track
-  std::unordered_set<int32_t> mMeshing;
-  std::unordered_set<int32_t> mMeshed;
-
-  
   // rendering
-  Shader *mBlockShader = nullptr;
+  MeshRenderer *mRenderer = nullptr;
+  RayTracer *mRayTracer = nullptr;
   Shader *mChunkLineShader = nullptr;
-  cTextureAtlas *mTexAtlas = nullptr;
   cMeshBuffer* mChunkLineMesh = nullptr;
 
+  
+  std::mutex mTimingLock;
+  double mMeshTime = 0.0;
+  int mMeshNum = 0;
 
-  bool isEdge(int32_t hash);
-  blockSide_t getEdges(int32_t hash);
+  bool isEdge(hash_t hash);
+  blockSide_t getEdges(hash_t hash);
   void meshChunk(Chunk *chunk);
   
-  block_t* atBlock(const Point3i &wp, std::unordered_map<int32_t, Chunk*> &neighbors);
-  block_t getBlock(const Point3i &wp, std::unordered_map<int32_t, Chunk*> &neighbors);
+  block_t* atBlock(const Point3i &wp);
+  block_t getBlock(const Point3i &wp);
   void updateAdjacent(const Point3i &wp);
 
-  bool neighborsLoaded(int32_t hash, Chunk *chunk);
+  bool neighborsLoaded(hash_t hash, Chunk *chunk);
   void chunkLoadCallback(Chunk *chunk);
   bool checkChunkLoad(const Point3i &cp);
 
-  void meshWorker(int tid);
-  int getAO(int e1, int e2, int c);
-  int getLighting(const Point3i &bp, const Point3f &vpos, blockSide_t side,
-                  std::unordered_map<int32_t, Chunk*> &neighbors );
-  void updateChunkMesh(Chunk *chunk);
-  void addMesh(MeshedChunk *mc);
+  Point3i playerStartPos() const;
+  int getHeightAt(const Point2i &xy);
 
   MeshData makeChunkLineMesh();
-
   bool updateInfo();
-  //bool correctChunk(const Point3i &bp, const Point3i &bi, Chunk *chunk, Chunk* &chunkOut, Point3i &pOut);
-  //bool updateChunkEdges(Chunk *chunk);
-
 };
 
 #endif // WORLD_HPP

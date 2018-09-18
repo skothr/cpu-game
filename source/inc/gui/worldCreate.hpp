@@ -15,7 +15,7 @@ public:
   virtual ~WorldCreate() { }
 
 signals:
-  void created(const World::Options &opt);
+  void created(World::Options &opt);
   void back();
 protected slots:
   void setName(const QString &name);

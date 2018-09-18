@@ -25,7 +25,8 @@ Frustum* Camera::getFrustum()
 
 void Camera::setPos(const Point3f &newPos)
 {
-  mFrustum.setPos(newPos + mEyeOffset);
+  mBox.setCenter(newPos);
+  mFrustum.setPos(mBox.center() + mEyeOffset);
 }
 
 void Camera::rotate(float pitch, float yaw)
@@ -88,7 +89,7 @@ void Player::select(const Point2f &pos, const Matrix4 &proj)
       // inverse view
       Vector<float, 4> rayWorld = vInv * rayEye;
       mSelectRay = Vector3f({rayWorld[0], rayWorld[1], rayWorld[2]}).normalized();
-    } 
+    }
 }
 
 CompleteBlock Player::selectedBlock()
@@ -351,7 +352,8 @@ void Player::update(double dt)
 
 
 GodPlayer::GodPlayer(Point3f pos, Vector3f forward, Vector3f up, World *world)
-  : Player(pos, forward, up, world, Vector3f{0,0,0}, 256.0f) // far reach
+  : Player(pos, forward, up, world,
+           Vector3f{0,0,PLAYER_EYE_HEIGHT}, 256.0f) // far reach
 { }
 
 void GodPlayer::onUpdate(double dt)
@@ -377,7 +379,7 @@ CompleteBlock GodPlayer::onPlace()
 
 FpsPlayer::FpsPlayer(Point3f pos, Vector3f forward, Vector3f up, World *world)
   : Player(pos, forward, up, world,
-           Vector3f{0, 0, PLAYER_EYE_HEIGHT - PLAYER_SIZE[2]*0.5f}, 4.0f) // short reach
+           Vector3f{0, 0, PLAYER_EYE_HEIGHT}, 4.0f) // short reach
 {
   
 }

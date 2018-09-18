@@ -7,9 +7,9 @@
 #define MESH_THREAD_SLEEP_MS   10
 #define MAIN_THREAD_SLEEP_MS   20
 #define PHYSICS_TIMESTEP_MS    10
-#define BLOCK_TIMESTEP_MS      50
+#define BLOCK_TIMESTEP_MS      100
 
-#define PLAYER_FOV 45
+#define PLAYER_FOV 60
 #define PLAYER_ASPECT 1.0
 #define PLAYER_Z_NEAR 0.2
 #define PLAYER_Z_FAR 512.0

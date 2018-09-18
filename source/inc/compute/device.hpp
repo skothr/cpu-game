@@ -4,27 +4,30 @@
 #include <vector>
 #include <thread>
 
-class cCpu;
-class cMemory;
+class Cpu;
+class Memory;
 
-class cDevice
+class Device
 {
 public:
-  cDevice();
+  Device();
 
-  bool addCpu(cCpu *newCpu);
-  bool addMemory(cMemory *newMemory);
+  bool addCpu(Cpu *newCpu);
+  bool addMemory(Memory *newMemory);
 
+  bool ready() const;
+  void update();
+  /*
   bool start();
   bool stop();
 
   void runLoop();
-  
+  */
 private:
-  bool mRunning = false;
-  std::thread mThread;
-  cMemory *mMemory;
-  cCpu *mCpu;
+  //bool mRunning = false;
+  //std::thread mThread;
+  Memory *mMemory = nullptr;
+  Cpu *mCpu = nullptr;
 };
 
 #endif // DEVICE_HPP

@@ -102,6 +102,12 @@ inline blockSide_t oppositeSide(blockSide_t side)
   return (side == blockSide_t::NONE ? blockSide_t::NONE :
           gOppositeSides.find(side)->second );
 }
+inline blockSide_t getSide(const Point3i &dir)
+{
+  return ((dir[0] < 0 ? blockSide_t::NX : (dir[0] > 0 ? blockSide_t::PX : blockSide_t::NONE)) |
+          (dir[1] < 0 ? blockSide_t::NY : (dir[1] > 0 ? blockSide_t::PY : blockSide_t::NONE)) |
+          (dir[2] < 0 ? blockSide_t::NZ : (dir[2] > 0 ? blockSide_t::PZ : blockSide_t::NONE)) );
+}
 inline blockSide_t getSide(int sx, int sy, int sz)
 {
   return ((sx < 0 ? blockSide_t::NX : (sx > 0 ? blockSide_t::PX : blockSide_t::NONE)) |

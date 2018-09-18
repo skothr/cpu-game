@@ -4,14 +4,14 @@
 
 #include <cstdint>
 
-class cMemory
+class Memory
 {
 public:
   const int bytes;
   const int speed;
   
-  cMemory(int numBytes, int memSpeed);
-  ~cMemory();
+  Memory(int numBytes, int memSpeed);
+  ~Memory();
 
   uint8_t access(int addr);
   void set(int addr, uint8_t val);

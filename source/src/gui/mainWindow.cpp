@@ -61,6 +61,7 @@ MainWindow::MainWindow(QWidget *parent)
   connect(load, &WorldLoad::back, std::bind(&SystemMenu::changeMenu, mMenu, mMainMenuId));
   // game
   connect(mGame, &GameWidget::quit, this, &QWidget::close);
+  connect(mGame, &GameWidget::mainMenu, std::bind(&SystemMenu::changeMenu, mMenu, mMainMenuId));
   
   QHBoxLayout *mainLayout = new QHBoxLayout();
   mainLayout->addWidget(mMenu);
@@ -74,7 +75,7 @@ MainWindow::~MainWindow()
   LOGD("deconstructing mainwindow...");
 }
 
-void MainWindow::loadWorld(const World::Options &options)
+void MainWindow::loadWorld(World::Options &options)
 {
   if(mEngine->loadWorld(options))
     {
@@ -87,7 +88,7 @@ void MainWindow::loadWorld(const World::Options &options)
       LOGE("Could not load world!");
     }
 }
-void MainWindow::createWorld(const World::Options &options)
+void MainWindow::createWorld(World::Options &options)
 {
   if(mEngine->createWorld(options))
     {

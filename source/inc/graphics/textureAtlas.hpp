@@ -20,7 +20,7 @@ public:
   bool create(const std::string &filePath);
   void destroy();
   
-  void bind();
+  void bind(int texNum = 0);
   void release();
 
   
