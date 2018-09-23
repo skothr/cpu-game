@@ -2,10 +2,12 @@
 #define MAIN_WINDOW_HPP
 
 #include <QWidget>
+#include <string>
 
 #include "vector.hpp"
 #include "block.hpp"
 #include "world.hpp"
+
 
 class QVBoxLayout;
 class QGridLayout;
@@ -14,6 +16,7 @@ class QStackedLayout;
 class GameWidget;
 class SystemMenu;
 class VoxelEngine;
+class WorldLoad;
 
 class MainWindow : public QWidget
 {
@@ -25,7 +28,9 @@ public:
 public slots:
   void createWorld(World::Options &options);
   void loadWorld(World::Options &options);
+  void deleteWorld(std::string worldName);
 protected slots:
+  void selectMenu(int id);
   void quit();
   
 protected:
@@ -37,6 +42,8 @@ private:
   GameWidget *mGame = nullptr;
   VoxelEngine *mEngine = nullptr;
 
+  WorldLoad *mLoad = nullptr;
+  
   int mMainMenuId;
   int mWorldCreateId;
   int mWorldLoadId;

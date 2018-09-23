@@ -17,6 +17,10 @@ inline float lerp(float x0, float x1, float a)
 {
   return (1.0f - a) * x0 + (a * x1);
 }
+inline Vector3f lerp(Vector3f v0, Vector3f v1, float a)
+{
+  return v0*(1.0f - a) + v1*a;
+}
 
 static Vector3i gCenterLoopInit;
 static std::vector<Point3i> gCenterLoopPoints;

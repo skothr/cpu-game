@@ -5,13 +5,6 @@
 #include "mainWindow.hpp"
 #include "logging.hpp"
 
-#include "chunkManager.hpp"
-#include "chunk.hpp"
-
-#include <unistd.h>
-#include <iostream>
-#include "mmapFile.hpp"
-
 
 int main(int argc, char *argv[])
 {

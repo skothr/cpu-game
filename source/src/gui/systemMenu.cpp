@@ -10,13 +10,16 @@ SystemMenu::SystemMenu(QWidget *parent)
   : QWidget(parent)
 {
   mStack = new QStackedLayout(this);
-  connect(this, SIGNAL(menuChanged(int)), mStack, SLOT(setCurrentIndex(int)));
+  //connect(this, SIGNAL(menuChanged(int)), mStack, SLOT(setCurrentIndex(int)));
   setLayout(mStack);
 }
 
+int SystemMenu::currentMenu() const
+{ return mStack->currentIndex(); }
+
 void SystemMenu::changeMenu(int id)
 {
-  emit menuChanged(id);
+  mStack->setCurrentIndex(id);
 }
 
 int SystemMenu::addMenu(const Menu &menu)

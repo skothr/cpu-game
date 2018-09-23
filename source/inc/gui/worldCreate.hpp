@@ -31,6 +31,8 @@ protected slots:
 protected:
 private:
   World::Options mOptions;
+
+  void update();
 };
 
 #endif // WORLD_CREATE_HPP

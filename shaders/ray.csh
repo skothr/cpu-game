@@ -167,14 +167,3 @@ void main()
   // output to a specific pixel in the image
   imageStore(imgOut, pixCoords, pixel);
 }
-
-
-/*
-  float intersectBox(vec3 origin, vec3 dir, vec3 bpos)
-  {
-  vec3 dirinv = 1.0 / dir;
-  vec3 dp = (bpos - origin) * dirinv;
-  vec3 t1 = min(dp, dp + dirinv);
-  return max(max(t1.x, t1.y), t1.z);
-  }
-*/

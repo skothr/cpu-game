@@ -93,5 +93,32 @@ void TerrainGenerator::generate(const Point3i &chunkPos, terrain_t genType,
               std::memcpy((void*)&dataOut[bi*Block::dataSize], (void*)&b, Block::dataSize);
             }
       break;
+    case terrain_t::PERLIN_CAVES:
+      mNoise.SetFrequency(1.0);
+      mNoise.SetNoiseType(FastNoise::Simplex);
+      for(y = 0; y < Chunk::sizeY; y++)
+        for(z = 0; z < Chunk::sizeZ; z++)
+          for(x = 0; x < Chunk::sizeX; x++, bi++)
+            {
+              Point3i worldPos = Point3i{chunkPos[0]*Chunk::sizeX+x, chunkPos[1]*Chunk::sizeY+y, chunkPos[2]*Chunk::sizeZ+z};
+              float n0 = mNoise.GetNoise((float)worldPos[0]/Chunk::sizeX, (float)worldPos[1]/Chunk::sizeY, (float)worldPos[2]/Chunk::sizeZ);
+              float n1 = mNoise.GetNoise((float)worldPos[0]/Chunk::sizeX, (float)worldPos[1]/Chunk::sizeY, (float)worldPos[2]/Chunk::sizeZ*n0);
+
+              float n = 0.1 - n1*n1;
+              
+              if(std::abs(n) < 0.01)
+                { b = block_t::STONE; }
+              //else if(n < 75.0)
+                //  { b = block_t::GRASS; }
+                //{ b = ((n1 > 0 || n1 < -100.0) ? block_t::GRASS : block_t::SAND); }
+              else if(n < 0.05)
+                { b = block_t::DIRT; }
+              else
+                { b = block_t::NONE; }
+              
+              std::memcpy((void*)&dataOut[bi*Block::dataSize], (void*)&b, Block::dataSize);
+            }
+      break;
     }
+  mNoise.SetFrequency(1.0);
 }

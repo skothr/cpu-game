@@ -1,5 +1,6 @@
 #include "worldLoad.hpp"
 #include "button.hpp"
+#include "configFile.hpp"
 
 #include <QLabel>
 #include <QVBoxLayout>
@@ -12,7 +13,7 @@
 
 
 WorldLoad::WorldLoad(World *world, QWidget *parent)
-  : QWidget(parent), mWorld(world), mOptions{"", terrain_t::PERLIN_WORLD, 0, {0,0,0}, {8,8,4}, 8, 8}
+  : QWidget(parent), mWorld(world), mOptions(getDefaultOptions())
 {
   mWorldList = new QListWidget();
   loadWorlds();
@@ -91,10 +92,13 @@ WorldLoad::WorldLoad(World *world, QWidget *parent)
   QHBoxLayout *btnLayout = new QHBoxLayout();
   Button *backButton = new Button("Back");
   connect(backButton, SIGNAL(clicked()), this, SIGNAL(back()));
+  Button *deleteButton = new Button("Delete World");
+  connect(deleteButton, SIGNAL(clicked()), this, SLOT(deleteWorld()));
   Button *startButton = new Button("Load World");
   connect(startButton, SIGNAL(clicked()), this, SLOT(loadWorld()));
 
   btnLayout->addWidget(backButton);
+  btnLayout->addWidget(deleteButton);
   btnLayout->addWidget(startButton);
   
   QVBoxLayout *innerLayout = new QVBoxLayout();
@@ -132,46 +136,76 @@ WorldLoad::WorldLoad(World *world, QWidget *parent)
 
 }
 
+void WorldLoad::update()
+{
+  writeDefaultOptions(mOptions);
+}
 
 void WorldLoad::setChunkRadiusX(int rx)
 {
   mOptions.chunkRadius[0] = rx;
+  update();
 }
 void WorldLoad::setChunkRadiusY(int ry)
 {
   mOptions.chunkRadius[1] = ry;
+  update();
 }
 void WorldLoad::setChunkRadiusZ(int rz)
 {
   mOptions.chunkRadius[2] = rz;
+  update();
 }
 void WorldLoad::setLoadThreads(int threads)
 {
   mOptions.loadThreads = threads;
+  update();
 }
 void WorldLoad::setMeshThreads(int threads)
 {
   mOptions.meshThreads = threads;
+  update();
 }
 
 void WorldLoad::loadWorld()
 { emit loaded(mOptions); }
+void WorldLoad::deleteWorld()
+{
+  int wIndex = mWorldList->currentRow();
+  LOGDC(COLOR_GREEN, "Prev index: %d", wIndex);
+  emit deleted(mOptions.name);
+  refreshList();
+  LOGDC(COLOR_GREEN, "Num worlds: %d", mWorlds.size());
+  selectWorld(std::min(std::max(0, wIndex), (int)mWorlds.size()-1));
+  //loadWorlds();
+}
+
+void WorldLoad::refreshList()
+{
+  loadWorlds();
+}
 
 void WorldLoad::selectWorld(int index)
 {
-  mOptions.name = mWorlds[index].name;
-  mOptions.terrain = mWorlds[index].terrain;
-  mOptions.seed = mWorlds[index].seed;
+  if(index >= 0 && index < mWorlds.size())
+    {
+      LOGDC(COLOR_CYAN, "Selecting world: %d", index);
+      mOptions.name = mWorlds[index].name;
+      mOptions.terrain = mWorlds[index].terrain;
+      mOptions.seed = mWorlds[index].seed;
   
-  mNameLabel->setText(mOptions.name.c_str());
-  mTerrainLabel->setText(QString(toString(mOptions.terrain).c_str()));
-  mSeedLabel->setText(QString::number(mOptions.seed));
+      mNameLabel->setText(mOptions.name.c_str());
+      mTerrainLabel->setText(QString(toString(mOptions.terrain).c_str()));
+      mSeedLabel->setText(QString::number(mOptions.seed));
+
+      mWorldList->setCurrentRow(index); //item(index)->setSelected(true);
+    }
 }
 
 void WorldLoad::loadWorlds()
 {
-  mWorlds = mWorld->getWorlds();
   mWorldList->clear();
+  mWorlds = mWorld->getWorlds();
   for(auto w : mWorlds)
     { mWorldList->addItem(w.name.c_str()); }
 }

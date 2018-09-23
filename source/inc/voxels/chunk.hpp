@@ -6,6 +6,7 @@
 #include "indexing.hpp"
 #include "meshing.hpp"
 #include <array>
+#include <queue>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -79,6 +80,13 @@ public:
   void unsetNeighbor(blockSide_t side);
 
   void update();
+
+  void floodFill(std::queue<Point3i> &points,
+                 std::array<bool, totalSize> &traversed,
+                 blockSide_t &sides );
+  void updateConnected();
+  bool edgesConnected(blockSide_t prevSide, blockSide_t nextSide);
+  void printEdgeConnections();
   
   // updating
   bool isDirty() { return mDirty; }
@@ -108,6 +116,9 @@ private:
   std::atomic<bool> mNeedSave = false;
   std::atomic<bool> mReady = false;
 
+  //std::unordered_map<blockSide_t, blockSide_t> mConnectedEdges;
+  uint16_t mConnectedEdges = 0;
+  
   void reset();
   
   static inline int blockX(int wx)

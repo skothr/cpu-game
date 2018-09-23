@@ -44,7 +44,7 @@ World::~World()
   while(mLoadQueue.size() > 0)
     {
       Chunk *chunk = mLoadQueue.front();
-      mLoadQueue.pop();
+      mLoadQueue.pop_front();
       if(chunk)
         { delete chunk; }
     }
@@ -161,7 +161,7 @@ bool World::createWorld(World::Options &opt, bool overwrite)
       opt.playerPos = mPlayerStartPos;
       updateInfo(opt);
       LOGI("Done creating world.");
-std::cout << "PLAYER POS: " << mPlayerStartPos << ", CENTER: " << mCenter << "\n";
+      std::cout << "PLAYER POS: " << mPlayerStartPos << ", CENTER: " << mCenter << "\n";
       return true;
     }
   else
@@ -172,12 +172,17 @@ std::cout << "PLAYER POS: " << mPlayerStartPos << ", CENTER: " << mCenter << "\n
     }
 }
 
+bool World::deleteWorld(const std::string &worldName)
+{
+  return mLoader->deleteWorld(worldName);
+}
 
 #define START_POS_CHUNK_RAD 4
 #define START_SPACE_BLOCK_W 8
 
-int World::getHeightAt(const Point2i &xy)
+int World::getHeightAt(const Point2i &xy, bool *success)
 {
+  std::lock_guard<std::mutex> lock(mChunkLock);
   for(int z = 0; z < 4*Chunk::sizeZ; z++)
     {
       Point3i min{xy[0]-START_SPACE_BLOCK_W/2, xy[1]-START_SPACE_BLOCK_W/2, z};
@@ -188,32 +193,42 @@ int World::getHeightAt(const Point2i &xy)
         for(p[1] = min[1]; p[1] <= max[1]; p[1]++)
           for(p[2] = min[2]; p[2] <= max[2]; p[2]++)
             {
-              if(getBlock(p) != block_t::NONE)
+              auto cIter = mChunks.find(Hash::hash(chunkPos(p)));
+              if(cIter == mChunks.end() || !cIter->second ||
+                 cIter->second->getType(Chunk::blockPos(p)) != block_t::NONE )
                 {
                   open = false;
                   break;
                 }
             }
       if(open)
-        { return z; }
+        {
+          if(success)
+            { *success = true; }
+          return z;
+        }
     }
-return -10000.0;
+  if(success)
+    { *success = false; }
+  return -100;
 }
 
 Point3f World::getStartPos()
 {
-  return Point3f{mPlayerStartPos[0], mPlayerStartPos[1], mPlayerStartPos[2]};
+  return Point3f({mPlayerStartPos[0] + 0.5f,
+                  mPlayerStartPos[1] + 0.5f,
+                  mPlayerStartPos[2] });
 }
 
 static auto startt = std::chrono::high_resolution_clock::now();
 Point3i World::playerStartPos() const
 {
   std::default_random_engine generator;
-generator.seed((std::chrono::high_resolution_clock::now() - startt).count());
+  generator.seed((std::chrono::high_resolution_clock::now() - startt).count());
   std::uniform_int_distribution<int> randX(-START_POS_CHUNK_RAD*Chunk::sizeX,
-START_POS_CHUNK_RAD*Chunk::sizeX );
+                                           START_POS_CHUNK_RAD*Chunk::sizeX );
   std::uniform_int_distribution<int> randY(-START_POS_CHUNK_RAD*Chunk::sizeY,
-START_POS_CHUNK_RAD*Chunk::sizeY );
+                                           START_POS_CHUNK_RAD*Chunk::sizeY );
   return Point3i({randX(generator), randY(generator), 0.0});
 }
 
@@ -221,29 +236,42 @@ bool World::readyForPlayer()
 {
   if(!mPlayerReady)
     {
-int h = getHeightAt(Point2f{mPlayerStartPos[0], mPlayerStartPos[1]});
+      bool success = false;
+      int z = getHeightAt(Point2f{mPlayerStartPos[0], mPlayerStartPos[1]}, &success);
 
-bool ready = (h > 0);
-
-/*
-Point3i ppos = chunkPos(mPlayerStartPos);
-          auto iter = mChunks.find(Hash::hash(ppos[0], ppos[1], cz));
-          if(iter == mChunks.end() || !iter->second)
-            {
-              ready = false;
-              break;
-            }
-        }
-*/
-      if(ready)
+      if(mNumLoaded > 64)
         {
-          mPlayerStartPos[2] = getHeightAt(Point2i{mPlayerStartPos[0], mPlayerStartPos[1]});
+          success = true;
+          z = 0;
+        }
+      
+      if(success)
+        {
+          mPlayerStartPos[2] = z + 1;
           LOGD("PLAYER START POS: %d,%d,%d", mPlayerStartPos[0], mPlayerStartPos[1], mPlayerStartPos[2]);
+          
           mLoader->savePlayerPos(mPlayerStartPos);
           setCenter(chunkPos(mPlayerStartPos));
           mPlayerReady = true;
+          
+          // create platform below for player if necessary
+          Point2i min{mPlayerStartPos[0]-START_SPACE_BLOCK_W/2,
+                      mPlayerStartPos[1]-START_SPACE_BLOCK_W/2 };
+          Point2i max{mPlayerStartPos[0]+START_SPACE_BLOCK_W/2,
+                      mPlayerStartPos[1]+START_SPACE_BLOCK_W/2 };
+          Point3i p;
+          p[2] = z;
+          for(p[0] = min[0]; p[0] <= max[0]; p[0]++)
+            for(p[1] = min[1]; p[1] <= max[1]; p[1]++)
+                {
+                  //setBlock(p, block_t::NONE);
+                  setBlock(p, block_t::STONE);
+                }
+
         }
-    }  
+    }
+      
+  
   return mPlayerReady;
 }
 
@@ -268,7 +296,31 @@ void World::clearFluids()
   //mRayTracer->clearFluids();
 }
 
-void World::clear()
+int World::numMeshed()
+{ return mRenderer->numMeshed(); }
+
+bool World::chunkIsLoading(const Point3i &cp)
+{
+  auto iter = mChunks.find(Hash::hash(cp));
+  return (iter != mChunks.end() && !iter->second);
+}
+bool World::chunkIsLoaded(const Point3i &cp)
+{
+  auto iter = mChunks.find(Hash::hash(cp));
+  return (iter != mChunks.end() && iter->second);
+}
+bool World::chunkIsMeshed(const Point3i &cp)
+{
+  auto iter = mChunks.find(Hash::hash(cp));
+  return (iter != mChunks.end() && iter->second && mRenderer->isMeshed(Hash::hash(cp)));
+}
+bool World::chunkIsEmpty(const Point3i &cp)
+{
+  auto iter = mChunks.find(Hash::hash(cp));
+  return (iter != mChunks.end() && iter->second && iter->second->isEmpty());
+}
+
+void World::reset()
 {
   clearFluids();
 
@@ -281,7 +333,7 @@ void World::clear()
   while(mLoadQueue.size() > 0)
     {
       Chunk *chunk = mLoadQueue.front();
-      mLoadQueue.pop();
+      mLoadQueue.pop_front();
       if(chunk)
         { delete chunk; }
     }
@@ -292,6 +344,11 @@ void World::clear()
       if(chunk)
         { delete chunk; }
     }
+  mResetGL = true;
+  mPlayerReady = false;
+  mNumLoaded = 0;
+  mNumLoading = 0;
+  mCenterDistIndex = 0;
 }
 
 bool World::initGL(QObject *qParent)
@@ -336,6 +393,33 @@ bool World::initGL(QObject *qParent)
           mChunkLineMesh->setMode(GL_LINES);
         }
 
+      
+      mFrustumShader = new Shader(qParent);
+      if(!mFrustumShader->loadProgram("./shaders/frustumView.vsh", "./shaders/frustumView.fsh",
+                                        {"posAttr", "normalAttr", "texCoordAttr"},
+                                        {"pvm", "camPos", "fogStart", "fogEnd", "dirScale"} ))
+        {
+          LOGE("Chunk line shader failed to load!");
+          delete mChunkLineShader;
+          mChunkLineShader = nullptr;
+          delete mFrustumShader;
+          mFrustumShader = nullptr;
+          mRenderer->cleanupGL();
+          mRayTracer->cleanupGL();
+          return false;
+        }
+      else
+        {
+          mFrustumShader->bind();
+          mFrustumShader->setUniform("fogStart", mFogStart);
+          mFrustumShader->setUniform("fogEnd", mFogEnd);
+          mFrustumShader->setUniform("dirScale", mDirScale);
+          mFrustumShader->release();
+          
+          mFrustumMesh = new cMeshBuffer();
+          mFrustumMesh->initGL(mFrustumShader);
+        }
+
       mInitialized = true;
     }
   return true;
@@ -350,6 +434,10 @@ void World::cleanupGL()
       mChunkLineMesh = nullptr;
       delete mChunkLineShader;
       mChunkLineShader = nullptr;
+      delete mFrustumMesh;
+      mFrustumMesh = nullptr;
+      delete mFrustumShader;
+      mFrustumShader = nullptr;
       
       mInitialized = false;
     }
@@ -363,8 +451,10 @@ void World::render(const Matrix4 &pvm)
     }
   else
     {
-      mRenderer->render(pvm, mCamPos);
+      mRenderer->render(pvm, mCamPos, mResetGL);
     }
+
+  mResetGL = false;
 
   if(mDebug)
     {
@@ -380,19 +470,27 @@ void World::render(const Matrix4 &pvm)
           mChunkLineShader->setUniform("fogStart", mFogStart);
           mChunkLineShader->setUniform("fogEnd", mFogEnd);
           mChunkLineShader->setUniform("dirScale", mDirScale);
+          
+          mFrustumShader->bind();
+          mFrustumShader->setUniform("fogStart", mFogStart);
+          mFrustumShader->setUniform("fogEnd", mFogEnd);
+          mFrustumShader->setUniform("dirScale", mDirScale);
+          mFrustumShader->release();
           mRadChanged = false;
         }
+      mChunkLineShader->bind();
       mChunkLineMesh->render();
       mChunkLineShader->release();
+      
+      // render all loaded chunks
+      mFrustumShader->bind();
+      mFrustumShader->setUniform("pvm", pvm);//*matTranslate();
+      mFrustumShader->setUniform("camPos", mCamPos);
+      mFrustumMesh->uploadData(mRenderer->makeFrustumMesh());
+      mFrustumMesh->render();
+      mFrustumShader->release();
     }
 }
-
-
-int World::numMeshed()
-{
-  return mRenderer->numMeshed();
-}
-
 
 bool World::checkChunkLoad(const Point3i &cp)
 {
@@ -467,33 +565,30 @@ void World::update()
   
   { // start loading chunks in range
     const std::vector<Point3i> &distPoints = getCenterDistPoints(mCenter, mLoadRadius);
-    if(mCenterDistIndex < distPoints.size())
+    for(int i = 0; i < distPoints.size(); i++)
       {
-        for(int i = mCenterDistIndex; i < distPoints.size(); i++, mCenterDistIndex++)
+        const Point3i cp = mCenter + distPoints[i];//{x,y,z};
+        const int cHash = Hash::hash(cp);
+        auto iter = mChunks.find(cHash);
+        if(iter == mChunks.end())
           {
-            const Point3i cp = mCenter + distPoints[i];
-            const int cHash = Hash::hash(cp);
-            auto iter = mChunks.find(cHash);
-            if(iter == mChunks.end())
+            Chunk *chunk = nullptr;
+            if(mUnusedChunks.size() > 0)
               {
-                Chunk *chunk = nullptr;
-                if(mUnusedChunks.size() > 0)
-                  {
-                    chunk = mUnusedChunks.front();
-                    mUnusedChunks.pop();
-                    chunk->setWorldPos(cp);
-                  }
-                else
-                  { chunk = new Chunk(cp); }
-
-                {
-                  std::lock_guard<std::mutex> lock(mChunkLock);
-                  mChunks.emplace(cHash, nullptr);
-                }
-                mLoader->load(chunk);
-                if(++mNumLoading >= mLoader->numThreads()*16)
-                  { break; }
+                chunk = mUnusedChunks.front();
+                mUnusedChunks.pop();
+                chunk->setWorldPos(cp);
               }
+            else
+              { chunk = new Chunk(cp); }
+
+            {
+              std::lock_guard<std::mutex> lock(mChunkLock);
+              mChunks.emplace(cHash, nullptr);
+            }
+            mLoader->load(chunk);
+            if(mNumLoading++ > mLoader->numThreads()*4)
+              { break; }
           }
       }
   }
@@ -506,7 +601,7 @@ void World::update()
         if(mLoadQueue.size() > 0)
           {
             chunk = mLoadQueue.front();
-            mLoadQueue.pop();
+            mLoadQueue.pop_front();
           }
         else
           { break; }
@@ -565,25 +660,30 @@ void World::update()
         const hash_t cHash = iter.first;
         if(chunk && !chunk->isEmpty())
           {
-            Point3i cp = chunk->pos();
-            bool nLoaded = neighborsLoaded(cHash, chunk);
-            if(!chunk->isReady() && nLoaded)
+            const Point3i cp = chunk->pos();
+            if(cp[0] > mMinChunk[0] || cp[0] < mMaxChunk[0] &&
+               cp[1] > mMinChunk[1] || cp[1] < mMaxChunk[1] &&
+               cp[2] > mMinChunk[2] || cp[2] < mMaxChunk[2] )
               {
-                chunk->setReady(true);
-                chunk->setDirty(true);
-              }
-            else if(chunk->isReady() && !nLoaded)
-              {
-                chunk->setReady(false);
-                mRenderer->unload(iter.first);
-                mRayTracer->unload(iter.first);
-              }
+                bool nLoaded = neighborsLoaded(cHash, chunk);
+                if(!chunk->isReady() && nLoaded)
+                  {
+                    chunk->setReady(true);
+                    chunk->setDirty(true);
+                  }
+                // else if(chunk->isReady() && !nLoaded)
+                //   {
+                //     chunk->setReady(false);
+                //     mRenderer->unload(iter.first);
+                //     mRayTracer->unload(iter.first);
+                //   }
             
-            if(chunk->isReady() && chunk->isDirty())
-              { // mesh needs updating
-                chunk->setDirty(false);
-                mRenderer->load(chunk, mCenter);
-                mRayTracer->load(iter.first, chunk);
+                if(chunk->isReady() && chunk->isDirty())
+                  { // mesh needs updating
+                    chunk->setDirty(false);
+                    mRenderer->load(chunk, mCenter);
+                    mRayTracer->load(iter.first, chunk);
+                  }
               }
           }
       }
@@ -610,7 +710,7 @@ void World::update()
   mMeshNum++;
   if(mMeshNum >= 16)
     {
-      LOGD("Avg Update Time: %f", mMeshTime / mMeshNum / 1000000000.0);
+      //LOGD("Avg Update Time: %f", mMeshTime / mMeshNum / 1000000000.0);
       mMeshTime = 0.0;
       mMeshNum = 0;
     }
@@ -793,8 +893,7 @@ block_t* World::atBlock(const Point3i &wp)
     { return nullptr; }
 }
 
-
-void addChunkFace(MeshData &data, const Point3i &cp, bool meshed)
+void addChunkFace(MeshData &data, Chunk *chunk, const Point3i &cp, bool meshed)
 {
   Vector3f color = (meshed ? Vector3f{0,0,0} : Vector3f{1,0,0});
   int nVert = data.vertices().size();
@@ -834,6 +933,36 @@ void addChunkFace(MeshData &data, const Point3i &cp, bool meshed)
   data.indices().push_back(nVert + 6);
   data.indices().push_back(nVert + 3);
   data.indices().push_back(nVert + 7);
+
+  // add edge connections
+  nVert = data.vertices().size();
+  for(int i = 0; i < 6; i++)
+    {
+      Vector3f offset = sideDirection((blockSide_t)(1 << i));
+      for(int d = 0; d < 3; d++)
+        {
+          if(offset[d] == 0)
+            { offset[d] = Chunk::size[d]/2; }
+          else if(offset[d] > 0)
+            { offset[d] = Chunk::size[d] - 8; }
+          else
+            { offset[d] = 8; }
+        }
+
+      data.vertices().emplace_back(cp*Chunk::size + offset,
+                                   Vector3f{1.0f, 1.0f, 1.0f}, Point2i{0,0} );
+    }
+  for(int i = 0; i < 6; i++)
+    {
+      for(int j = i+1; j < 6; j++)
+    {
+      if(chunk->edgesConnected((blockSide_t)(1 << i), (blockSide_t)(1 << j)))
+        {
+         data.indices().push_back(nVert + i);
+         data.indices().push_back(nVert + j);
+        }
+    }
+  }
 }
 
 MeshData World::makeChunkLineMesh()
@@ -855,8 +984,9 @@ MeshData World::makeChunkLineMesh()
           std::lock_guard<std::mutex> lock(mChunkLock);
           auto cIter = mChunks.find(cHash);
           if(cIter != mChunks.end() && cIter->second)
-            { addChunkFace(data, cp, meshed); }
+            { addChunkFace(data, cIter->second, cp, meshed); }
         }
+  
   return data;
 }
 
@@ -864,7 +994,42 @@ void World::chunkLoadCallback(Chunk *chunk)
 {
   mNumLoading--;
   std::lock_guard<std::mutex> lock(mLoadLock);
-  mLoadQueue.push(chunk);
+  mLoadQueue.push_back(chunk);
+
+  /*
+    { // start loading chunks in range
+    const std::vector<Point3i> &distPoints = getCenterDistPoints(mCenter, mLoadRadius);
+    if(mCenterDistIndex < distPoints.size())
+    {
+    for(int i = mCenterDistIndex; i < distPoints.size(); i++, mCenterDistIndex++)
+    {
+    const Point3i cp = mCenter + distPoints[i];
+    const int cHash = Hash::hash(cp);
+    auto iter = mChunks.find(cHash);
+    if(iter == mChunks.end())
+    {
+    Chunk *chunk = nullptr;
+    if(mUnusedChunks.size() > 0)
+    {
+    chunk = mUnusedChunks.front();
+    mUnusedChunks.pop();
+    chunk->setWorldPos(cp);
+    }
+    else
+    { chunk = new Chunk(cp); }
+
+    {
+    std::lock_guard<std::mutex> lock(mChunkLock);
+    mChunks.emplace(cHash, nullptr);
+    }
+    mLoader->load(chunk);
+    if(++mNumLoading >= mLoader->numThreads()*16)
+    { break; }
+    }
+    }
+    }
+    }
+  */
 }
 
 
@@ -881,7 +1046,7 @@ void World::setCenter(const Point3i &chunkCenter)
     mCenterDistIndex = 0;
   }
   mRenderer->setCenter(mCenter);
-  mRenderer->reorderQueue(mCenter);
+  mRayTracer->setCenter(mCenter);
 }
   
 void World::setRadius(const Vector3i &chunkRadius)
@@ -916,15 +1081,15 @@ void World::setFrustum(Frustum *frustum)
   mRenderer->setFrustum(frustum);
   mRayTracer->setFrustum(frustum);
 }
-void World::setFrustumClip(bool on)
+void World::setFrustumCulling(bool on)
 {
-  mRenderer->setFrustumClip(on);
-  mRayTracer->setFrustumClip(on);
+  mRenderer->setFrustumCulling(on);
+  mRayTracer->setFrustumCulling(on);
 }
-void World::setFrustumPause()
+void World::pauseFrustumCulling()
 {
-  mRenderer->setFrustumPause();
-  mRayTracer->setFrustumPause();
+  mRenderer->pauseFrustumCulling();
+  mRayTracer->pauseFrustum();
 }
 
 void World::setScreenSize(const Point2i &size)

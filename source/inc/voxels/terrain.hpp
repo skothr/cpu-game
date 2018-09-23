@@ -18,6 +18,7 @@ enum class terrain_t : int8_t
    DIRT_GROUND = 0,
    PERLIN_WORLD,
    PERLIN,
+   PERLIN_CAVES,
 
    COUNT
   };
@@ -32,6 +33,8 @@ inline std::string toString(terrain_t t)
       return "Perlin";
     case terrain_t::PERLIN_WORLD:
       return "Perlin World";
+    case terrain_t::PERLIN_CAVES:
+      return "Perlin Caves";
     default:
       return "<INVALID>";
     }
@@ -60,11 +63,11 @@ public:
   TerrainGenerator(uint32_t seed)
     : mSeed(seed)
   {
-    mNoise.SetNoiseType(FastNoise::SimplexFractal);
+    mNoise.SetNoiseType(FastNoise::Simplex);
     mNoise.SetFrequency(1.0);
     mNoise.SetSeed(seed);
-    mNoise.SetInterp(FastNoise::Linear);
-    mNoise.SetFractalOctaves(1);
+    //mNoise.SetInterp(FastNoise::Linear);
+    mNoise.SetFractalOctaves(4);
   }
 
   void setSeed(uint32_t seed)

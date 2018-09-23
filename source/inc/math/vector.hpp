@@ -35,9 +35,9 @@ public:
   bool operator!=(const Vector<T, N> &other) const;
 
   T max() const
-  { return std::max_element(&mData[0], &mData[N-1]); }
+  { return *std::max_element(&mData[0], &mData[N-1]); }
   T min() const
-  { return std::min_element(&mData[0], &mData[N-1]); }
+  { return *std::min_element(&mData[0], &mData[N-1]); }
 
   Vector<T, N+1> asPoint() const
   {
@@ -128,6 +128,28 @@ public:
     return Vector({min1[0] <});
   }
   */
+
+  
+  Vector<T, N>& rotate(const Vector<T, N> &ax, T angle)
+  {
+    if(N != 3) throw std::logic_error("Can only rotate 3D vectors!");
+    const T cosa = cos(angle);
+    const T sina = sin(angle);
+    const Vector<T, N> cross = crossProduct(ax, *this) * sina;
+    const Vector<T, N> axdot = ax * ax.dot(*this) * (1.0f - cosa);
+    for(int i = 0; i < N; i++)
+      { mData[i] = mData[i] * cosa + cross[i] + axdot[i]; }
+    return *this;
+  }
+  Vector<T, N> rotated(const Vector<T, N> &ax, T angle)
+  {
+    if(N != 3) throw std::logic_error("Can only rotate 3D vectors!");
+    const T cosa = cos(angle);
+    const T sina = sin(angle);
+    const Vector<T, N> cross = crossProduct(ax, *this) * sina;
+    const Vector<T, N> axdot = ax * ax.dot(*this) * (1.0f - cosa);
+    return (*this)*cosa + cross + axdot;
+  }
 
   T length() const;
   Vector<T, N> normalized() const;
@@ -568,8 +590,8 @@ typedef Vector4i Point4i;
 
 inline Vector3f rotateVec(const Vector3f v, const Vector3f ax, float angle)
 {
-  float cosa = cos(angle);
-  float sina = sin(angle);
+  const float cosa = cos(angle);
+  const float sina = sin(angle);
   return (v * cosa) + (crossProduct(ax, v) * sina) + (ax * ax.dot(v) * (1.0f - cosa));
 }
 

@@ -118,7 +118,7 @@ bool ComputeShader::loadProgram(const std::string &cshFile,
         {
           int loc = glGetUniformLocation(mProgramId, uniforms[i].c_str());
           mUniforms.emplace(uniforms[i], loc);
-          LOGD(" Uniform '%s' at %d\n", uniforms[i].c_str(), loc);
+          LOGD(" Uniform '%s' at %d", uniforms[i].c_str(), loc);
         }
 
       LOGI("Compute shader program compiled and linked.");

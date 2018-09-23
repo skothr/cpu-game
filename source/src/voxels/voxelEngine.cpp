@@ -7,13 +7,13 @@
 VoxelEngine::VoxelEngine(QObject *qParent)
   : mMainThread(1, std::bind(&VoxelEngine::mainLoop, this), MAIN_THREAD_SLEEP_MS*1000),
     mBlockThread("Block Update", std::bind(&VoxelEngine::stepBlocks, this, std::placeholders::_1), false),
-    mPhysicsThread("Physics", std::bind(&VoxelEngine::stepPhysics, this, std::placeholders::_1), false)
+    mPhysicsThread("Physics", std::bind(&VoxelEngine::stepPhysics, this, std::placeholders::_1), false),
+    mWorld(new World())
 {
-  mWorld = new World();
 #if GOD_PLAYER
-  mPlayer = new GodPlayer(START_POS, PLAYER_EYE, PLAYER_UP, mWorld);
+  mPlayer = new GodPlayer(Point3f{0,0,0}, PLAYER_EYE, PLAYER_UP, mWorld);
 #else
-  mPlayer = new FpsPlayer(START_POS, PLAYER_EYE, PLAYER_UP, mWorld);
+  mPlayer = new FpsPlayer(Point3f{0,0,0}, PLAYER_EYE, PLAYER_UP, mWorld);
 #endif
   mWorld->setFrustum(mPlayer->getFrustum());
 }
@@ -27,12 +27,10 @@ VoxelEngine::~VoxelEngine()
 
 bool VoxelEngine::loadWorld(World::Options &opt)
 {
-  //mWorld->setCenter(START_CHUNK);
   return mWorld->loadWorld(opt);
 }
 bool VoxelEngine::createWorld(World::Options &opt)
 {
-  //mWorld->setCenter(START_CHUNK);
   return mWorld->createWorld(opt);
 }
 
@@ -279,28 +277,29 @@ void VoxelEngine::prevTool()
 
 void VoxelEngine::sendInput(const InputData &data)
 {
+  static float sneakMult = 1.0f;
   if(mInitialized)
     {
       switch(data.type)
         {
           // movement
         case input_t::MOVE_RIGHT:
-          mPlayer->addXForce((data.movement.keyDown && !mPaused) ? PLAYER_SPEED : 0.0);
+          mPlayer->addXForce((data.movement.keyDown && !mPaused) ? PLAYER_SPEED*sneakMult : 0.0);
           break;
         case input_t::MOVE_LEFT:
-          mPlayer->addXForce((data.movement.keyDown && !mPaused) ? -PLAYER_SPEED : 0.0);
+          mPlayer->addXForce((data.movement.keyDown && !mPaused) ? -PLAYER_SPEED*sneakMult : 0.0);
           break;
         case input_t::MOVE_FORWARD:
-          mPlayer->addYForce((data.movement.keyDown && !mPaused) ? PLAYER_SPEED : 0.0);
+          mPlayer->addYForce((data.movement.keyDown && !mPaused) ? PLAYER_SPEED*sneakMult : 0.0);
           break;
         case input_t::MOVE_BACK:
-          mPlayer->addYForce((data.movement.keyDown && !mPaused) ? -PLAYER_SPEED : 0.0);
+          mPlayer->addYForce((data.movement.keyDown && !mPaused) ? -PLAYER_SPEED*sneakMult : 0.0);
           break;
         case input_t::MOVE_UP:
-          mPlayer->addZForce((data.movement.keyDown && !mPaused) ? PLAYER_SPEED : 0.0);
+          mPlayer->addZForce((data.movement.keyDown && !mPaused) ? PLAYER_SPEED*sneakMult : 0.0);
           break;
         case input_t::MOVE_DOWN:
-          mPlayer->addZForce((data.movement.keyDown && !mPaused) ? -PLAYER_SPEED : 0.0);
+          mPlayer->addZForce((data.movement.keyDown && !mPaused) ? -PLAYER_SPEED*sneakMult : 0.0);
           break;
 
 #if GOD_PLAYER
@@ -309,6 +308,10 @@ void VoxelEngine::sendInput(const InputData &data)
             { mPlayer->addZForce((data.movement.keyDown && !mPaused) ? PLAYER_SPEED : 0.0); }
           break;
         case input_t::ACTION_SNEAK:
+          if(data.action.keyDown)
+            { sneakMult = 0.005f; }
+          else
+            { sneakMult = 1.0f; }
           break;
 #else
         case input_t::ACTION_JUMP: // (only for fps player)
@@ -316,6 +319,10 @@ void VoxelEngine::sendInput(const InputData &data)
             { mPlayer->jump(data.movement.magnitude); }
           break;
         case input_t::ACTION_SNEAK:
+          if(data.action.keyDown)
+            { sneakMult = 0.2f; }
+          else
+            { sneakMult = 1.0f; }
           break;
 #endif // GOD_PLAYER
 

@@ -1,4 +1,5 @@
 #include "frustum.hpp"
+#include "miscMath.hpp"
 
 #include <QMatrix4x4>
 #include <cmath>
@@ -11,19 +12,20 @@ Frustum::Frustum()
 
 void Frustum::setProjection(float fovy, float aspect, float zNear, float zFar)
 {
-  mFov = fovy;
+  mFovY = fovy*M_PI/180.0;
+  mFovX = 2*atan(tan(mFovY/2.0f)*aspect);
   mAspect = aspect;
   mNearZ = zNear;
   mFarZ = zFar;
-
-  mNearHeight = 2.0f * mNearZ * atan(fovy/2.0f);
-  mFarHeight = 2.0f * mFarZ * atan(fovy/2.0f);
-  mNearWidth = mNearHeight / mAspect;
-  mFarWidth = mFarHeight / mAspect;
+  
+  const float tanY = tan(mFovY*0.5f);
+  const float tanX = tan(mFovX*0.5f);
+  
+  mNearHeight = mNearZ * tanY;
+  mFarHeight = mFarZ * tanY;
+  mNearWidth = mNearZ * tanX;
+  mFarWidth = mFarZ * tanX;
   calcPlanes();
-
-  std::cout << "FOV: " << mFov << " | ASPECT: " << mAspect << " | NEAR: " << mNearZ << " | FAR: " << mFarZ << "\n";
-  std::cout << "  --> nHeight: " << mNearHeight << ", nWidth: " << mNearWidth << ", fHeight: " << mFarHeight << ", fWidth: " << mFarWidth << "\n";
 }
 
 void Frustum::setView(const Vector3f &forward, const Vector3f &up)
@@ -63,12 +65,15 @@ float Frustum::getAspect() const
 
 float Frustum::getFov() const
 {
-  return mFov;
+  return mFovY*180.0/M_PI;
 }
 
 Vector3f Frustum::getEye() const
 {
-  return (mForward*(1.0 - std::abs(mPitch)) + mUp * (mPitch)).normalized();
+  if(mPitch >= 0.0f)
+    { return lerp(mForward, mUp, mPitch).normalized(); }
+  else
+    { return lerp(mForward, -mUp, -mPitch).normalized(); }
 }
 Vector3f Frustum::getEyeRight() const
 {
@@ -76,70 +81,71 @@ Vector3f Frustum::getEyeRight() const
 }
 Vector3f Frustum::getEyeUp() const
 {
-  return (-mForward*mPitch + mUp * (1.0 - std::abs(mPitch))).normalized();
+  if(mPitch >= 0.0f)
+    { return lerp(mUp, -mForward, mPitch).normalized(); }
+  else
+    { return lerp(mUp, mForward, -mPitch).normalized(); }
 }
 Point3f Frustum::getPos() const
 {
-  return mCenter;
+  return mCenter; 
 }
 
 Matrix4 Frustum::getView() const
 {
   QMatrix4x4 v;
-  v.lookAt(toQt(mCenter), toQt(mCenter + getEye()),
-           toQt((std::abs(mPitch) == 1.0f ? mForward * -mPitch : mUp)));
+  v.lookAt(toQt(mCenter), toQt(mCenter + getEye()), toQt(getEyeUp()));
   return Matrix4(v);
 }
 
 Matrix4 Frustum::getProjection() const
 {
   QMatrix4x4 p;
-  p.perspective(mFov, mAspect, mNearZ, mFarZ);
+  p.perspective(mFovY*180.0/M_PI, mAspect, mNearZ, mFarZ);
   return p;
 }
 
 void Frustum::calcPlanes()
 {
-  Matrix4 m = getProjection()*getView();
-  m = m.transposed();
+  const Vector3f eye = getEye();
+  const Vector3f up = getEyeUp();
+
+  const Point3f nearCenter = mCenter + eye * mNearZ;
+  const Point3f farCenter = mCenter + eye * mFarZ;
+
+  const Vector3f nearOffsetW = mRight*mNearWidth;
+  const Vector3f nearOffsetH = up*mNearHeight;
+  const Vector3f farOffsetW = mRight*mFarWidth;
+  const Vector3f farOffsetH = up*mFarHeight;
   
-  // near and far planes
+  const Point3f nbl = nearCenter - nearOffsetW - nearOffsetH;
+  const Point3f nbr = nearCenter + nearOffsetW - nearOffsetH;
+  const Point3f ntl = nearCenter - nearOffsetW + nearOffsetH;
+  const Point3f ntr = nearCenter + nearOffsetW + nearOffsetH;
+  
+  const Point3f fbl = farCenter - farOffsetW - farOffsetH;
+  const Point3f fbr = farCenter + farOffsetW - farOffsetH;
+  const Point3f ftl = farCenter - farOffsetW + farOffsetH;
+  const Point3f ftr = farCenter + farOffsetW + farOffsetH;
+
   // left
-  Vector3f n = Vector3f({m.at(0,3) - m.at(0,0), m.at(1,3) - m.at(1,0), m.at(2,3) - m.at(2,0)});
-  float l = n.length();
-  mPlanes[0] = {n/l, (m.at(3,3) - m.at(3,0))/l};
+  mPlanes[0] = { nbl, ntl, fbl, ftl,
+                 crossProduct((ntl - nbl), (fbl - nbl)).normalized() };
   // right
-  n = Vector3f({m.at(0,3) + m.at(0,0), m.at(1,3) + m.at(1,0), m.at(2,3) + m.at(2,0)});
-  l = n.length();
-  mPlanes[1] = {n/l, (m.at(3,3) + m.at(3,0))/l};
+  mPlanes[1] = { nbr, fbr, ntr, ftr,
+                 crossProduct((fbr - nbr), (ntr - nbr)).normalized() };
   // top
-  n = Vector3f({m.at(0,3) + m.at(0,1), m.at(1,3) + m.at(1,1), m.at(2,3) + m.at(2,1)});
-  l = n.length();
-  mPlanes[2] = {n/l, (m.at(3,3) + m.at(3,1))/l};
+  mPlanes[2] = { ntl, ntr, ftl, ftr,
+                 crossProduct((ntr - ntl), (ftl - ntl)).normalized() };
   // bottom
-  n = Vector3f({m.at(0,3) - m.at(0,1), m.at(1,3) - m.at(1,1), m.at(2,3) - m.at(2,1)});
-  l = n.length();
-  mPlanes[3] = {n/l, (m.at(3,3) - m.at(3,1))/l};
-  // back
-  n = Vector3f({m.at(0,3) - m.at(0,2), m.at(1,3) - m.at(1,2), m.at(2,3) - m.at(2,2)});
-  l = n.length();
-  mPlanes[4] = {n/l, (m.at(3,3) - m.at(3,2))/l};
-  // front
-  n = Vector3f({m.at(0,3) + m.at(0,2), m.at(1,3) + m.at(1,2), m.at(2,3) + m.at(2,2)});
-  l = n.length();
-  mPlanes[5] = {n/l, (m.at(3,3) + m.at(3,2))/l};
-}
-
-
-
-bool Frustum::pointInside(const Point3f &p, const Matrix4 &pv)
-{
-  Vector<float, 4> pos({p[0]-mCenter[0], p[1]-mCenter[1], p[2]-mCenter[2], 1.0f});
-  Vector<float, 4> v = pv*pos;
-
-  return (v[0] > -v[3] && v[0] < v[3] &&
-          v[1] > -v[3] && v[1] < v[3] &&
-          v[2] > 0 && v[2] < v[3] );
+  mPlanes[3] = { nbl, fbl, nbr, fbr,
+                 crossProduct((fbl - nbl), (nbr - nbl)).normalized() };
+  // front (near)
+  mPlanes[4] = { nbl, nbr, ntl, ntr,
+                 crossProduct((nbr - nbl), (ntl - nbl)).normalized() };
+  // back (far)
+  mPlanes[5] = { fbr, fbl, ftr, ftl,
+                 crossProduct((fbl - fbr), (ftr - fbr)).normalized() };
 }
 
 bool Frustum::sphereInside(const Point3f &center, float radius)
@@ -147,39 +153,65 @@ bool Frustum::sphereInside(const Point3f &center, float radius)
   return false;
 }
 
-bool Frustum::cubeInside(const Point3f &center, const Vector3f &size, const Matrix4 &pv)
+bool Frustum::pointInside(const Point3f &p, const Frustum::Plane &plane)
 {
-  bool inside = false;
-  /*
-  Point<float, 4> sp{center[0], center[1], center[2], 1.0};
-  sp = pv * sp;
+float planeVal = plane.normal.dot((plane.center - p).normalized());
+  return planeVal >= 0.0;
+}
 
-  if(sp[0] > -sp[3] && sp[0] < sp[3] &&
-     sp[1] > -sp[3] && sp[1] < sp[3] &&
-     sp[2] > 0 && sp[2] < sp[3] )
-  */
-
-  /*
-  for(int x = 0; x <=1; x++)
-    for(int y = 0; y <=1; y++)
-      for(int z = 0; z <=1; z++)
-        {
-          inside |= ((center + size*Vector3f{x,y,z}) - mCenter).dot(getEye() - mRight) > 0;
-        }
-  return inside;  
-*/  
+bool Frustum::cubeInside(const Point3f &pos, const Vector3f &size)
+{
+  const Point3f maxP = pos + size;
   for(int i = 0; i < 6; i++)
-    {
-      Vector<float, 4> v = (getView()*Vector<float, 4>({center[0], center[1], center[2], 0.0f}));
-      float d = Vector3f{v[0], v[1], v[2]}.dot(mPlanes[i].norm);
-      float r = (size[0] * std::abs(mPlanes[i].norm[0]) +
-                 size[1] * std::abs(mPlanes[i].norm[1]) +
-                 size[2] * std::abs(mPlanes[i].norm[2]) );
-
-      float dpr = d + r;
-
-      if(dpr < -mPlanes[i].scalar)
+    { // check if all corners are outside plane
+      if(!pointInside(pos, mPlanes[i]) &&
+         !pointInside({maxP[0], pos[1], pos[2]}, mPlanes[i]) &&
+         !pointInside({pos[0], maxP[1], pos[2]}, mPlanes[i]) &&
+         !pointInside({maxP[0], maxP[1], pos[2]}, mPlanes[i]) &&
+         !pointInside({pos[0], pos[1], maxP[2]}, mPlanes[i]) &&
+         !pointInside({maxP[0], pos[1], maxP[2]}, mPlanes[i]) &&
+         !pointInside({pos[0], maxP[1], maxP[2]}, mPlanes[i]) &&
+         !pointInside(maxP, mPlanes[i]) )
         { return false; }
     }
   return true;
+}
+
+void Frustum::makePlaneMesh(int planeIndex, const Vector3f &color, MeshData &mesh)
+{
+  Plane &p = mPlanes[planeIndex];
+
+  const Vector3f offset = getEye() * 0.01;
+  
+  int numVert = mesh.vertices().size();
+  mesh.vertices().emplace_back(p.center + offset, color, Point2i{0,0} );
+  mesh.vertices().emplace_back(p.p1 + offset, color, Point2i{0,0} );
+  mesh.vertices().emplace_back(p.p2 + offset, color, Point2i{0,0} );
+  mesh.vertices().emplace_back(p.opposite + offset, color, Point2i{0,0} );
+  
+  mesh.indices().push_back(numVert + 0);
+  mesh.indices().push_back(numVert + 1);
+  mesh.indices().push_back(numVert + 2);
+  mesh.indices().push_back(numVert + 2);
+  mesh.indices().push_back(numVert + 1);
+  mesh.indices().push_back(numVert + 3);
+}
+MeshData Frustum::makeDebugMesh()
+{
+  MeshData data;
+  Vector3f lColor{1,0,0};
+  Vector3f rColor{0,1,0};
+  Vector3f tColor{1,1,0};
+  Vector3f bColor{0,1,1};
+  Vector3f nColor{1,1,1};
+  Vector3f fColor{1,0,1};
+
+  makePlaneMesh(0, lColor, data);
+  makePlaneMesh(1, rColor, data);
+  makePlaneMesh(2, tColor, data);
+  makePlaneMesh(3, bColor, data);
+  makePlaneMesh(4, nColor, data);
+  makePlaneMesh(5, fColor, data);
+  
+  return data;
 }

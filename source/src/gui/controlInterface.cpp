@@ -4,6 +4,7 @@
 #include "fluid.hpp"
 
 #include "displaySlider.hpp"
+#include "chunkLoadWidget.hpp"
 
 #include <iostream>
 
@@ -148,6 +149,10 @@ void ControlInterface::setLightLevel(int level)
 void ControlInterface::setWireframe(int wireframe)
 {
   mEngine->setWireframe(wireframe != 0);
+}
+void ControlInterface::setFrustumCulling(int on)
+{
+  mEngine->getWorld()->setFrustumCulling(on != 0);
 }
 void ControlInterface::setDebug(int debug)
 {
@@ -371,6 +376,16 @@ QGroupBox* ControlInterface::makeRenderGroup()
   grid->addWidget(sLabel, 0,0,1,1);
   grid->addWidget(lSlider,0,1,1,3);
   
+  QCheckBox *rtCb = new QCheckBox("Ray Trace");
+  connect(rtCb, SIGNAL(stateChanged(int)), this, SLOT(setRaytrace(int)));
+  QCheckBox *wireCb = new QCheckBox("Wire Frame");
+  connect(wireCb, SIGNAL(stateChanged(int)), this, SLOT(setWireframe(int)));
+  QCheckBox *frustCb = new QCheckBox("Frustum Culling");
+  connect(frustCb, SIGNAL(stateChanged(int)), this, SLOT(setFrustumCulling(int)));
+  grid->addWidget(rtCb, 1, 0, 1, 3);
+  grid->addWidget(wireCb, 2, 0, 1, 3);
+  grid->addWidget(frustCb, 3, 0, 1, 3);
+  
   QGroupBox *rGroup = new QGroupBox("Render Distance");
   QGridLayout *rGrid = new QGridLayout();
   // Sliders to adjust chunk load radius
@@ -407,18 +422,19 @@ QGroupBox* ControlInterface::makeDebugGroup()
   QGroupBox *group = new QGroupBox("Debug");
   QVBoxLayout *vbox = new QVBoxLayout();
   
-  QCheckBox *rtCb = new QCheckBox("Ray Trace");
-  connect(rtCb, SIGNAL(stateChanged(int)), this, SLOT(setRaytrace(int)));
-  QCheckBox *wireCb = new QCheckBox("Wire Frame");
-  connect(wireCb, SIGNAL(stateChanged(int)), this, SLOT(setWireframe(int)));
-  QCheckBox *debugCb = new QCheckBox("Debug");
+  QCheckBox *debugCb = new QCheckBox("Chunk Bounds");
   connect(debugCb, SIGNAL(stateChanged(int)), this, SLOT(setDebug(int)));
   
-  vbox->addWidget(rtCb);
-  vbox->addWidget(wireCb);
   vbox->addWidget(debugCb);
   vbox->setMargin(20);
   vbox->setSpacing(0);
-  group->setLayout(vbox);
+
+  ChunkLoadWidget *loaded = new ChunkLoadWidget(mEngine->getWorld());
+  
+  QHBoxLayout *hbox = new QHBoxLayout();
+  hbox->addLayout(vbox);
+  hbox->addWidget(loaded);
+  
+  group->setLayout(hbox);
   return group;
 }

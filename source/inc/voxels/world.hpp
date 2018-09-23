@@ -16,6 +16,7 @@
 #include <mutex>
 #include <atomic>
 #include <vector>
+#include <list>
 #include <condition_variable>
 #include <unordered_map>
 #include <unordered_set>
@@ -51,6 +52,7 @@ public:
   bool worldExists(const std::string &name) const;
   bool loadWorld(Options &opt);
   bool createWorld(Options &opt, bool overwrite = false);
+  bool deleteWorld(const std::string &worldName);
   void updateInfo(const Options &opt);
   void start();
   void stop();
@@ -59,6 +61,13 @@ public:
   int centerChunks() const { return (mChunkDim[0]-2)*(mChunkDim[1]-2)*(mChunkDim[2]-2); }
   int numLoaded() const { return mNumLoaded; }
   int numMeshed();
+
+  bool chunkIsLoading(const Point3i &cp);
+  bool chunkIsLoaded(const Point3i &cp);
+  bool chunkIsMeshed(const Point3i &cp);
+  bool chunkIsEmpty(const Point3i &cp);
+
+  void reset();
 
   // rendering
   bool initGL(QObject *qparent);
@@ -70,11 +79,10 @@ public:
   void setFluidEvap(float rate);
   void setRaytracing(bool on);
   void clearFluids();
-  void clear();
 
   void setFrustum(Frustum *frustum);
-  void setFrustumClip(bool on);
-  void setFrustumPause();
+  void setFrustumCulling(bool on);
+  void pauseFrustumCulling();
 
   void setScreenSize(const Point2i &size);
 
@@ -113,12 +121,12 @@ private:
   bool mSimFluids = true;
   float mEvapRate = 0.0;
   bool mFoundCenter = false;
+  bool mResetGL = false;
   
   float mFogStart;
   float mFogEnd;
   Vector3f mDirScale;
   bool mRadChanged = false;
-
 
   Point3i mPlayerStartPos;
   bool mPlayerReady = false;
@@ -143,14 +151,14 @@ private:
   std::mutex mBoundaryLock;
     
   int mMaxLoad;
-  std::atomic<int> mNumLoading;
+  std::atomic<int> mNumLoading = 0;
   int mCenterDistIndex = 0;
   std::atomic<int> mNumLoaded = 0;
 
   std::unordered_map<hash_t, Chunk*> mChunks;
   std::unordered_map<hash_t, ChunkBounds*> mChunkBoundaries;
   std::queue<Chunk*> mUnusedChunks;
-  std::queue<Chunk*> mLoadQueue;
+  std::list<Chunk*> mLoadQueue;
 
   // rendering
   MeshRenderer *mRenderer = nullptr;
@@ -158,6 +166,8 @@ private:
   Shader *mChunkLineShader = nullptr;
   cMeshBuffer* mChunkLineMesh = nullptr;
 
+  Shader *mFrustumShader = nullptr;
+  cMeshBuffer *mFrustumMesh = nullptr;
   
   std::mutex mTimingLock;
   double mMeshTime = 0.0;
@@ -176,9 +186,10 @@ private:
   bool checkChunkLoad(const Point3i &cp);
 
   Point3i playerStartPos() const;
-  int getHeightAt(const Point2i &xy);
+  int getHeightAt(const Point2i &xy, bool *success = nullptr);
 
   MeshData makeChunkLineMesh();
+  MeshData makeFrustumMesh();
   bool updateInfo();
 };
 

@@ -19,6 +19,7 @@ RayTracer::~RayTracer()
   delete mShader;
 }
 
+
 bool RayTracer::initGL(QObject *qParent)
 {
   if(!mInitialized)
@@ -137,7 +138,7 @@ void RayTracer::render(const Matrix4 &pvm, const Point3f &camPos)
   glFinish();
   
   mShader->bind();
-  mShader->setUniform("camPos", camPos);
+  mShader->setUniform("camPos", Chunk::blockPos(camPos));
   mShader->setUniform("screenSize", mScreenSize);
   const float fov = mFrustum->getFov()/180.0f * M_PI;
   const Vector3f eye = mFrustum->getEye();
@@ -151,7 +152,7 @@ void RayTracer::render(const Matrix4 &pvm, const Point3f &camPos)
   
   mTexAtlas->bind();
   glBindBuffer(GL_SHADER_STORAGE_BUFFER, mBlockBuffer);
-  if(!init && prepareChunkData(0))
+  if(!init && prepareChunkData(Hash::hash(mCenter)))
     {
       init = true;
     }
@@ -159,6 +160,12 @@ void RayTracer::render(const Matrix4 &pvm, const Point3f &camPos)
   glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
   mTexAtlas->release();
   mShader->release();
+}
+
+void RayTracer::setCenter(const Point3i &center)
+{
+  mCenter = center;
+  init = false;
 }
 
 void RayTracer::load(hash_t hash, Chunk *chunk)
@@ -185,29 +192,29 @@ void RayTracer::setFog(float fogStart, float fogEnd, const Vector3f &dirScale)
 
 void RayTracer::setFrustum(Frustum *frustum)
 { mFrustum = frustum; }
-void RayTracer::setFrustumClip(bool on)
-{ mClipFrustum = on; }
+void RayTracer::setFrustumCulling(bool on)
+{ mFrustumCulling = on; }
 
-void RayTracer::setFrustumPause()
+void RayTracer::pauseFrustum()
 {
   std::lock_guard<std::mutex> lock(mRenderLock);
-  Matrix4 pvm = mFrustum->getProjection() * mFrustum->getView();
-  if(mClipFrustum)
+  //Matrix4 pvm = mFrustum->getProjection() * mFrustum->getView();
+  if(mFrustumPaused)
     {
       mFrustumRender.clear();
       int num = 0;
       for(auto &iter : mChunks)
         {
-          if(mFrustum->cubeInside(Hash::unhash(iter.first)*Chunk::size, Chunk::size, pvm))
+          if(mFrustum->cubeInside(Hash::unhash(iter.first)*Chunk::size, Chunk::size))
             { mFrustumRender.insert(iter.first); num++; }
           else
             { mFrustumRender.erase(iter.first); }
         }
-      mClipFrustum = false;
+      mFrustumPaused = false;
     }
   else
     {
-      mClipFrustum = true;
+      mFrustumPaused = true;
     }
 }
 

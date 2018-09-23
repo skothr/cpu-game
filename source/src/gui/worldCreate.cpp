@@ -1,5 +1,6 @@
 #include "worldCreate.hpp"
 #include "button.hpp"
+#include "configFile.hpp"
 
 #include <QLabel>
 #include <QVBoxLayout>
@@ -11,7 +12,7 @@
 #include <QComboBox>
 
 WorldCreate::WorldCreate(QWidget *parent)
-  : QWidget(parent), mOptions{"new-world", terrain_t::PERLIN_WORLD, 0, {0,0,0}, {8,8,4}, 8, 8}
+  : QWidget(parent), mOptions(getDefaultOptions())
 {
   QLabel *nLabel = new QLabel("World Name: ");
   QLineEdit *nameText = new QLineEdit();
@@ -132,40 +133,53 @@ WorldCreate::WorldCreate(QWidget *parent)
   setLayout(mainLayout);
 }
 
-
+void WorldCreate::update()
+{
+  writeDefaultOptions(mOptions);
+}
 
 void WorldCreate::setName(const QString &name)
 {
   mOptions.name = name.toStdString();
+  update();
 }
 void WorldCreate::setSeed(const QString &seed)
 {
   mOptions.seed = (uint32_t)seed.toUInt();
+  update();
 }
 void WorldCreate::setTerrain(int id)
 {
   mOptions.terrain = (terrain_t)id;
+  update();
 }
 void WorldCreate::setChunkRadiusX(int rx)
 {
   mOptions.chunkRadius[0] = rx;
+  update();
 }
 void WorldCreate::setChunkRadiusY(int ry)
 {
   mOptions.chunkRadius[1] = ry;
+  update();
 }
 void WorldCreate::setChunkRadiusZ(int rz)
 {
   mOptions.chunkRadius[2] = rz;
+  update();
 }
 void WorldCreate::setLoadThreads(int threads)
 {
   mOptions.loadThreads = threads;
+  update();
 }
 void WorldCreate::setMeshThreads(int threads)
 {
   mOptions.meshThreads = threads;
+  update();
 }
 
 void WorldCreate::createWorld()
-{ emit created(mOptions); }
+{
+  emit created(mOptions);
+}

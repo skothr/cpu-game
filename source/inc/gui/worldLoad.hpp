@@ -14,9 +14,15 @@ class WorldLoad : public QWidget
 public:
   WorldLoad(World *world, QWidget *parent = nullptr);
   virtual ~WorldLoad() { }
+
+  void refresh();
+
+public slots:
+  void refreshList();
   
 signals:
   void loaded(World::Options &opt);
+  void deleted(std::string worldName);
   void back();
 protected slots:
   void setChunkRadiusX(int rx);
@@ -26,6 +32,7 @@ protected slots:
   void setMeshThreads(int threads);
   void selectWorld(int index);
   void loadWorld();
+  void deleteWorld();
 private:
   World::Options mOptions;
   std::vector<World::Options> mWorlds;
@@ -35,6 +42,7 @@ private:
   QLabel *mSeedLabel = nullptr;
   QListWidget *mWorldList = nullptr;
   
+  void update();
   void loadWorlds();
 };
 

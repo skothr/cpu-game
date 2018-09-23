@@ -30,17 +30,20 @@ public:
   void render(const Matrix4 &pvm, const Point3f &camPos);
   
   void setFrustum(Frustum *frustum);
-  void setFrustumClip(bool on);
-  void setFrustumPause();
+  void setFrustumCulling(bool on);
+  void pauseFrustum();
   void setScreenSize(const Point2i &size);
   
   void load(hash_t hash, Chunk *chunk);
   void unload(hash_t hash);
   void setFog(float fogStart, float fogEnd, const Vector3f &dirScale);
+
+  void setCenter(const Point3i &center);
   
 private:
   bool mInitialized = false;
-  bool mClipFrustum = true;
+  bool mFrustumCulling = true;
+  bool mFrustumPaused = false;
   Frustum *mFrustum = nullptr;
   std::unordered_set<hash_t> mFrustumRender;
   
@@ -48,6 +51,7 @@ private:
   float mFogStart = 0.0f;
   float mFogEnd = 0.0f;
   Vector3f mDirScale;
+  Point3i mCenter;
 
   Point2i mScreenSize;
   GLuint mComputeTex;

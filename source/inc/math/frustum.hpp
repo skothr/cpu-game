@@ -4,6 +4,7 @@
 
 #include "vector.hpp"
 #include "geometry.hpp"
+#include "meshData.hpp"
 
 class Frustum
 {
@@ -30,20 +31,25 @@ public:
   Vector3f getUp() const { return mUp; }
   Vector3f getRight() const { return mRight; }
   
-  bool pointInside(const Point3f &p, const Matrix4 &pv);
+  bool pointInside(const Point3f &p);
   bool sphereInside(const Point3f &center, float radius);
-  bool cubeInside(const Point3f &center, const Vector3f &size, const Matrix4 &pv);
+  bool cubeInside(const Point3f &pos, const Vector3f &size);
+
+  MeshData makeDebugMesh();
   
 private:
   struct Plane
   {
-    Vector3f norm;
-    float scalar;
+    Point3f center;
+    Point3f p1;
+    Point3f p2;
+    Point3f opposite;
+    Point3f normal;
   };
-
   Plane mPlanes[6];
   
-  float mFov;
+  float mFovX;
+  float mFovY;
   float mAspect;
   float mNearZ;
   float mFarZ;
@@ -59,7 +65,8 @@ private:
   Vector3f mRight;
   
   float mPitch;
-
+  void makePlaneMesh(int planeIndex, const Vector3f &color, MeshData &mesh);
+  bool pointInside(const Point3f &p, const Plane &plane);
   void calcPlanes();
 };
 

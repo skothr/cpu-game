@@ -21,7 +21,8 @@ LIBS += -lstdc++fs -pg
 QMAKE_CXX_FLAGS_RELEASE += -O3 -funroll-all-loops
 
 # sources
-HEADERS += source/inc/gui/gameWidget.hpp source/inc/gui/mainWindow.hpp source/inc/graphics/shader.hpp source/inc/graphics/textureAtlas.hpp source/inc/gui/overlay.hpp source/inc/gui/controlInterface.hpp source/inc/gui/button.hpp source/inc/gui/systemMenu.hpp source/inc/gui/worldCreate.hpp source/inc/gui/worldLoad.hpp source/inc/gui/pauseWidget.hpp source/inc/gui/mainMenu.hpp source/inc/gui/displaySlider.hpp
+# HEADERS += source/inc/gui/gameWidget.hpp source/inc/gui/mainWindow.hpp source/inc/graphics/shader.hpp source/inc/graphics/textureAtlas.hpp source/inc/gui/overlay.hpp source/inc/gui/controlInterface.hpp source/inc/gui/button.hpp source/inc/gui/systemMenu.hpp source/inc/gui/worldCreate.hpp source/inc/gui/worldLoad.hpp source/inc/gui/pauseWidget.hpp source/inc/gui/mainMenu.hpp source/inc/gui/displaySlider.hpp
+HEADERS += source/inc/compute/*.hpp source/inc/graphics/*.hpp source/inc/gui/*.hpp source/inc/math/*.hpp source/inc/threading/*.hpp source/inc/tools/*.hpp source/inc/voxels/*.hpp ./libs/FastNoise/*.h
 SOURCES += source/src/compute/*.cpp source/src/graphics/*.cpp source/src/gui/*.cpp source/src/math/*.cpp source/src/threading/*.cpp source/src/tools/*.cpp source/src/voxels/*.cpp source/src/*.cpp ./libs/FastNoise/*.cpp
 
 #SOURCES += libs/FastNoise/*.cpp

@@ -245,6 +245,17 @@ bool ChunkLoader::loadWorld(const std::string &worldName)
   return true;
 }
 
+bool ChunkLoader::deleteWorld(const std::string &worldName)
+{
+  const std::string worldDir = WORLD_DIR + worldName + "/";
+  if(fs::exists(worldDir))
+    {
+      fs::remove_all(worldDir);
+      return true;
+    }
+  else
+    { return false; }
+}
 
 
 void ChunkLoader::load(Chunk* chunk)

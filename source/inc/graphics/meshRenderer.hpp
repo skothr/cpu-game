@@ -7,10 +7,11 @@
 #include "threadPool.hpp"
 #include "meshData.hpp"
 #include "geometry.hpp"
-
+#include "frustum.hpp"
 #include <queue>
 #include <deque>
 #include <vector>
+#include <list>
 #include <unordered_map>
 #include <unordered_set>
 #include <mutex>
@@ -40,13 +41,16 @@ public:
   void start();
   void stop();
   void setMeshThreads(int meshThreads);
-
+  void clearMeshes();
+  
   bool initGL(QObject *qParent);
   void cleanupGL();
-  void render(const Matrix4 &pvm, const Point3f &camPos);
+  void render(const Matrix4 &pvm, const Point3f &camPos, bool reset = false);
   void setFrustum(Frustum *frustum);
-  void setFrustumClip(bool on);
-  void setFrustumPause();
+  void setFrustumCulling(bool on);
+  void pauseFrustumCulling();
+
+  MeshData makeFrustumMesh();
 
   void setFluids(FluidManager *fluids)
   { mFluids = fluids; }
@@ -58,6 +62,7 @@ public:
   int numMeshed();
 
   bool isMeshed(hash_t hash);
+  bool isCulled(hash_t hash);
 
   void load(Chunk *chunk, const Point3i &center);
   void reorderQueue(const Point3i &newCenter);
@@ -76,8 +81,10 @@ private:
   static const std::array<Point3i, 6> meshSideDirections;
 
   bool mInitialized = false;
-  bool mClipFrustum = true;
+  bool mFrustumCulling = true;
+  bool mFrustumPaused = false;
   Frustum *mFrustum = nullptr;
+  Frustum mPausedFrustum;
   std::unordered_set<hash_t> mFrustumRender;
 
   FluidManager *mFluids = nullptr;
@@ -95,12 +102,15 @@ private:
   Point3i mCenter;
   
   struct MeshedChunk
-  { hash_t hash = 0;
-    MeshData mesh; };
+  {
+    hash_t hash = 0;
+    MeshData mesh;
+  };
   
   std::mutex mMeshLock;
   std::condition_variable mMeshCv;
-  std::deque<Chunk*> mLoadQueue;
+  //std::deque<Chunk*> mLoadQueue;
+  std::list<Chunk*> mLoadQueue;
   std::unordered_set<hash_t> mMeshing;
   
   std::mutex mUnloadLock;
@@ -115,6 +125,8 @@ private:
   std::unordered_map<hash_t, ChunkMesh*> mRenderMeshes;
   std::unordered_map<hash_t, ChunkMesh*> mFluidMeshes;
   std::queue<ChunkMesh*> mUnusedMeshes;
+  std::unordered_map<hash_t, Chunk*> mRenderChunks;
+  std::mutex mChunkLock;
   
   std::mutex mRenderQueueLock;
   std::mutex mFRenderQueueLock;

@@ -132,7 +132,7 @@ bool Shader::loadProgram(const std::string &vshFile, const std::string &fshFile,
     {
       glBindAttribLocation(mProgramId, i, mAttributes[i].c_str());
       glEnableVertexAttribArray(i);
-      LOGD(" Attribute %d --> '%s'\n", i, mAttributes[i].c_str());
+      //LOGD(" Attribute %d --> '%s'", i, mAttributes[i].c_str());
     }
   
   // link shader program
@@ -145,7 +145,7 @@ bool Shader::loadProgram(const std::string &vshFile, const std::string &fshFile,
     {
       int loc = glGetUniformLocation(mProgramId, uniforms[i].c_str());
       mUniforms.emplace(uniforms[i], loc);
-      LOGD(" Uniform '%s' at %d\n", uniforms[i].c_str(), loc);
+      LOGD(" Uniform '%s' at %d", uniforms[i].c_str(), loc);
     }
   
   LOGI("Shader program compiled and linked.");

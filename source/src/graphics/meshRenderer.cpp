@@ -78,6 +78,8 @@ void MeshRenderer::setMeshThreads(int meshThreads)
 {
   mMeshPool.setThreads(meshThreads);
 }
+
+
 void MeshRenderer::start()
 {
   mMeshPool.start();
@@ -251,9 +253,37 @@ void MeshRenderer::addMesh(MeshedChunk *mc)
   mUnusedMC.push(mc);
 }
 
-#define RENDER_LOAD_MESH_PER_FRAME 2
-void MeshRenderer::render(const Matrix4 &pvm, const Point3f &camPos)
+void MeshRenderer::clearMeshes()
 {
+  
+}
+
+#define RENDER_LOAD_MESH_PER_FRAME 6
+void MeshRenderer::render(const Matrix4 &pvm, const Point3f &camPos, bool reset)
+{
+  if(reset)
+    {
+      {
+        std::lock_guard<std::mutex> lock(mRenderLock);
+        for(auto mesh : mRenderMeshes)
+          {
+            mUnusedMeshes.push(mesh.second);
+            std::lock_guard<std::mutex> lock(mMeshedLock);
+            mMeshed.erase(mesh.first);
+          }
+        mRenderMeshes.clear();
+      }
+      {
+        std::lock_guard<std::mutex> lock(mRenderQueueLock);
+        while(mRenderQueue.size() > 0)
+          {
+            MeshedChunk *mc = mRenderQueue.front();
+            mRenderQueue.pop();
+            std::lock_guard<std::mutex> lock(mUnusedMCLock);
+            mUnusedMC.push(mc);
+          }
+      }
+    }
   {
     std::lock_guard<std::mutex> lock(mRenderQueueLock);
     int num = 0;
@@ -337,8 +367,96 @@ void MeshRenderer::render(const Matrix4 &pvm, const Point3f &camPos)
         mBlockShader->setUniform("dirScale", mDirScale);
         mFogChanged = false;
       }
-    for(auto &iter : mRenderMeshes)
-      { iter.second->render(); }
+
+    if(!mFrustumCulling || !mFrustumPaused)
+      {
+        const Vector3f playerEye = mFrustum->getEye();
+
+        static const std::vector<blockSide_t> stepSides { blockSide_t::PX,
+                                                          blockSide_t::PY,
+                                                          blockSide_t::PZ,
+                                                          blockSide_t::NX,
+                                                          blockSide_t::NY,
+                                                          blockSide_t::NZ };
+        static const std::vector<Vector3f> stepDirs { sideDirection(stepSides[0]),
+                                                      sideDirection(stepSides[1]),
+                                                      sideDirection(stepSides[2]),
+                                                      sideDirection(stepSides[3]),
+                                                      sideDirection(stepSides[4]),
+                                                      sideDirection(stepSides[5]) };
+
+        std::unordered_set<hash_t> traversed;
+        std::queue<std::pair<hash_t, blockSide_t>> steps;
+        
+        const hash_t cHash = Hash::hash(mCenter);
+        steps.push({cHash, blockSide_t::NONE});
+        //blockSide_t prevSide = blockSide_t::NONE;
+
+        while(steps.size() > 0)
+          {
+            const hash_t hash = steps.front().first;
+            const blockSide_t prevSide = steps.front().second;
+            steps.pop();
+
+            //LOGD("RENDER STEP --> HASH: %d, PREV: %d, TRAVERSED: %d", hash, (int)prevSide, traversed.count(hash));
+
+            if(traversed.count(hash) > 0)
+              { continue; }
+            else
+              { traversed.insert(hash); }
+
+            auto mIter = mRenderMeshes.find(hash);
+            if(mIter != mRenderMeshes.end())
+              {
+                if(mFrustumCulling)
+                  {
+                    //LOGD("FRUSTUM CULLING");
+                    // frustum culling active
+                    //LOGD("FRUSTUM PAUSED");
+                    if(hash == cHash ||
+                       mFrustum->cubeInside(Hash::unhash(hash)*Chunk::size, Chunk::size) )
+                      { mIter->second->render(); }
+                  }
+                else
+                  {
+                    //LOGD("NO FRUSTUM CULLING");
+                    mIter->second->render();
+                  }
+              }
+
+            std::unique_lock<std::mutex> lock(mChunkLock);
+            auto cIter = mRenderChunks.find(hash);
+            if(cIter != mRenderChunks.end())
+              {
+                Chunk *chunk = cIter->second;
+                lock.unlock();
+            
+                //chunk->printEdgeConnections();
+                for(int i = 0; i < 6; i++)
+                  {
+                    if(prevSide == blockSide_t::NONE ||
+                       chunk->edgesConnected(prevSide, stepSides[i]) )
+                      {
+                        //if(stepDirs[i].dot(playerEye) > 0.0f)
+                          {
+                            steps.push({Hash::hash(chunk->pos() + stepDirs[i]),
+                                        oppositeSide(stepSides[i]) });
+                          }
+                      }
+                  }
+              }
+          }
+      }
+    else
+      { // frustum culling paused to observe which chunks are culled
+        for(auto &hash : mFrustumRender)
+          {
+            auto iter = mRenderMeshes.find(hash);
+            if(iter != mRenderMeshes.end() && iter->second)
+              { iter->second->render(); }
+          }
+      }
+    
     for(auto &iter : mFluidMeshes)
       { iter.second->render(); }
     mBlockShader->release();
@@ -377,48 +495,20 @@ void MeshRenderer::setFog(float fogStart, float fogEnd, const Vector3f &dirScale
 
 void MeshRenderer::reorderQueue(const Point3i &newCenter)
 {
-  std::unique_lock<std::mutex> lock(mMeshLock);
-  auto newQueue = mLoadQueue;
-  mLoadQueue.clear();
-
-  Vector3i diff;
-  for(auto chunk : newQueue)
-    {
-      diff = chunk->pos() - newCenter;
-      const int cDist = diff.dot(diff);
-
-      auto iter = mLoadQueue.begin();
-      for(; iter != mLoadQueue.end(); ++iter)
-        {
-          diff = (*iter)->pos() - newCenter;
-          if(diff.dot(diff) >= cDist)
-            { break; }
-        }
-      mLoadQueue.insert(iter, chunk);
-    }
-  lock.unlock();
-  mMeshCv.notify_all();
+  mCenter = newCenter;
 }
 
 void MeshRenderer::load(Chunk *chunk, const Point3i &center)
 {
-  Vector3i diff = chunk->pos() - center;
-  const hash_t hash = Hash::hash(chunk->pos());
-  const int cDist = diff.dot(diff);
-  
+  mCenter = center;
+  {
+    std::lock_guard<std::mutex> lock(mChunkLock);
+    mRenderChunks[Hash::hash(chunk->pos())] = chunk;
+  }
+
   std::unique_lock<std::mutex> lock(mMeshLock);
-  if(mMeshing.count(hash) == 0)
-    {
-      auto iter = mLoadQueue.begin();
-      for(; iter != mLoadQueue.end(); ++iter)
-        {
-          diff = (*iter)->pos() - center;
-          if(diff.dot(diff) >= cDist)
-            { break; }
-        }
-      mLoadQueue.insert(iter, chunk);
-      mMeshing.insert(hash);
-    }
+  mLoadQueue.push_front(chunk);
+  mMeshing.insert(Hash::hash(chunk->pos()));
   lock.unlock();
   mMeshCv.notify_one();
 }
@@ -445,6 +535,16 @@ bool MeshRenderer::isMeshed(hash_t hash)
   return (mIter != mMeshed.end());
 }
 
+bool MeshRenderer::isCulled(hash_t hash)
+{
+  std::unique_lock<std::mutex> lock(mChunkLock);
+  auto mIter = mRenderChunks.find(hash);
+  if(mIter != mRenderChunks.end())
+    { return mFrustum->cubeInside(Hash::unhash(hash)*Chunk::size, Chunk::size); }
+  else
+    { return false; }
+}
+
 void MeshRenderer::meshWorker(int tid)
 {
   if(!mMeshPool.running())
@@ -456,6 +556,31 @@ void MeshRenderer::meshWorker(int tid)
     { return; }
 
   // get chunk
+  std::list<Chunk*>::iterator next;
+  float minDist = -1.0f;
+  for(auto iter = mLoadQueue.begin(); iter != mLoadQueue.end(); ++iter)
+    {
+      Vector3i diff = (*iter)->pos() - mCenter;
+      float dist = diff.dot(diff);
+      if(minDist < 0.0f || dist < minDist)
+        {
+          minDist = dist;
+          next = iter;
+        }
+    }
+
+  if(next != mLoadQueue.end())
+    {
+      hash_t cHash = Hash::hash((*next)->pos());
+      mLoadQueue.erase(next);
+      if(mMeshing.count(cHash) > 0)
+        { // mesh chunk
+          mMeshing.erase(cHash);
+          mMeshLock.unlock();
+          updateChunkMesh(*next);
+        }
+    }  
+  /*
   Chunk *next = mLoadQueue.front();
   mLoadQueue.pop_front();
   hash_t cHash = Hash::hash(next->pos());
@@ -465,6 +590,7 @@ void MeshRenderer::meshWorker(int tid)
       mMeshLock.unlock();
       updateChunkMesh(next);
     }
+  */
 }
 
 inline int MeshRenderer::getAO(int e1, int e2, int c)
@@ -530,6 +656,7 @@ void MeshRenderer::updateChunkMesh(Chunk *chunk)
   bool hasFluids = mFluids->setChunkBoundary(cHash, bounds);
 
   double t = (std::chrono::high_resolution_clock::now() - start).count();
+  chunk->updateConnected();
 
   { // 4ms avg
     std::lock_guard<std::mutex> lock(mTimingLock);
@@ -537,7 +664,7 @@ void MeshRenderer::updateChunkMesh(Chunk *chunk)
     mBoundsNum++;
     if(mBoundsNum >= 16)
       {
-        LOGD("Avg Bounds Time: %f", mBoundsTime / mBoundsNum / 1000000000.0);
+        //LOGD("Avg Bounds Time: %f", mBoundsTime / mBoundsNum / 1000000000.0);
         mBoundsTime = 0.0;
         mBoundsNum = 0;
       }
@@ -708,7 +835,7 @@ void MeshRenderer::updateChunkMesh(Chunk *chunk)
       mMeshNum++;
       if(mMeshNum >= 16)
         {
-          LOGD("Avg Mesh Time: %f", mMeshTime / mMeshNum / 1000000000.0);
+          //LOGD("Avg Mesh Time: %f", mMeshTime / mMeshNum / 1000000000.0);
           mMeshTime = 0.0;
           mMeshNum = 0;
         }
@@ -717,30 +844,36 @@ void MeshRenderer::updateChunkMesh(Chunk *chunk)
 
 void MeshRenderer::setFrustum(Frustum *frustum)
 { mFrustum = frustum; }
-void MeshRenderer::setFrustumClip(bool on)
-{ mClipFrustum = on; }
-
-void MeshRenderer::setFrustumPause()
+void MeshRenderer::setFrustumCulling(bool on)
+{ mFrustumCulling = on; }
+void MeshRenderer::pauseFrustumCulling()
 {
-  std::lock_guard<std::mutex> lock(mRenderLock);
-  Matrix4 pvm = mFrustum->getProjection() * mFrustum->getView();
-  if(mClipFrustum)
+  if(mFrustumCulling)
     {
-      mFrustumRender.clear();
-      int num = 0;
-      for(auto &iter : mRenderMeshes)
+      std::lock_guard<std::mutex> lock(mRenderLock);
+      if(!mFrustumPaused)
         {
-          if(mFrustum->cubeInside(Hash::unhash(iter.first)*Chunk::size, Chunk::size, pvm))
-            { mFrustumRender.insert(iter.first); num++; }
-          else
-            { mFrustumRender.erase(iter.first); }
+          mFrustumRender.clear();
+          int num = 0;
+          for(auto &iter : mRenderMeshes)
+            {
+              if(mFrustum->cubeInside(Hash::unhash(iter.first)*Chunk::size, Chunk::size))
+                { mFrustumRender.insert(iter.first); num++; }
+            }
+          mFrustumPaused = true;
+          mPausedFrustum = *mFrustum;
+          std::cout << "FRUSTUM PAUSED --> " << num << " / " << mRenderMeshes.size() << " chunks rendered.\n";
         }
-      mClipFrustum = false;
-      std::cout << "FRUSTUM PAUSED --> " << num << " / " << mRenderMeshes.size() << " chunks rendered.\n";
+      else
+        {
+          mFrustumPaused = false;
+          std::cout << "FRUSTUM UNPAUSED\n";
+        }
     }
-  else
-    {
-      mClipFrustum = true;
-      std::cout << "FRUSTUM UNPAUSED\n";
-    }
+}
+
+
+MeshData MeshRenderer::makeFrustumMesh()
+{
+  return mPausedFrustum.makeDebugMesh();
 }

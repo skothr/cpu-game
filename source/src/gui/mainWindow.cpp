@@ -6,7 +6,6 @@
 #include "mainMenu.hpp"
 #include "systemMenu.hpp"
 #include "button.hpp"
-#include "notifySlider.hpp"
 
 #include <QGridLayout>
 #include <QHBoxLayout>
@@ -39,29 +38,30 @@ MainWindow::MainWindow(QWidget *parent)
   
   // world create/load menus
   MainMenu *main = new MainMenu(this);
-  WorldLoad *load = new WorldLoad(mEngine->getWorld(), this);
   WorldCreate *create = new WorldCreate(this);
+  mLoad = new WorldLoad(mEngine->getWorld(), this);
 
   mMenu = new SystemMenu(this);
   mMainMenuId = mMenu->addWidget(main);
   mWorldCreateId = mMenu->addWidget(create);
-  mWorldLoadId = mMenu->addWidget(load);
+  mWorldLoadId = mMenu->addWidget(mLoad);
   mGameId = mMenu->addWidget(mGame);
   mMenu->changeMenu(mMainMenuId); // start at main menu
 
   // main
-  connect(main, &MainMenu::createWorld, std::bind(&SystemMenu::changeMenu, mMenu, mWorldCreateId));
-  connect(main, &MainMenu::loadWorld, std::bind(&SystemMenu::changeMenu, mMenu, mWorldLoadId));
+  connect(main, &MainMenu::createWorld, std::bind(&MainWindow::selectMenu, this, mWorldCreateId));
+  connect(main, &MainMenu::loadWorld, std::bind(&MainWindow::selectMenu, this, mWorldLoadId));
   connect(main, &MainMenu::quit, std::bind(&QWidget::close, this));
   // create
   connect(create, &WorldCreate::created, this, &MainWindow::createWorld);
-  connect(create, &WorldCreate::back, std::bind(&SystemMenu::changeMenu, mMenu, mMainMenuId));
+  connect(create, &WorldCreate::back, std::bind(&MainWindow::selectMenu, this, mMainMenuId));
   // load
-  connect(load, &WorldLoad::loaded, this, &MainWindow::loadWorld);
-  connect(load, &WorldLoad::back, std::bind(&SystemMenu::changeMenu, mMenu, mMainMenuId));
+  connect(mLoad, &WorldLoad::loaded, this, &MainWindow::loadWorld);
+  connect(mLoad, &WorldLoad::deleted, this, &MainWindow::deleteWorld);
+  connect(mLoad, &WorldLoad::back, std::bind(&MainWindow::selectMenu, this, mMainMenuId));
   // game
   connect(mGame, &GameWidget::quit, this, &QWidget::close);
-  connect(mGame, &GameWidget::mainMenu, std::bind(&SystemMenu::changeMenu, mMenu, mMainMenuId));
+  connect(mGame, &GameWidget::mainMenu, std::bind(&MainWindow::selectMenu, this, mMainMenuId));
   
   QHBoxLayout *mainLayout = new QHBoxLayout();
   mainLayout->addWidget(mMenu);
@@ -73,6 +73,21 @@ MainWindow::MainWindow(QWidget *parent)
 MainWindow::~MainWindow()
 {
   LOGD("deconstructing mainwindow...");
+}
+
+void MainWindow::selectMenu(int id)
+{
+  if(id == mWorldLoadId)
+    {
+      mLoad->refreshList();
+    }
+
+  if(mMenu->currentMenu() == mGameId && id != mGameId)
+    { // close pause menu
+      mGame->pause(false);
+    }
+  
+  mMenu->changeMenu(id);
 }
 
 void MainWindow::loadWorld(World::Options &options)
@@ -102,6 +117,15 @@ void MainWindow::createWorld(World::Options &options)
     }
 }
 
+void MainWindow::deleteWorld(std::string worldName)
+{
+  if(!mEngine->getWorld()->deleteWorld(worldName))
+    { // TODO: If deleting fails, show message (?)
+      LOGE("Could not delete world!");
+    }
+  //mLoad->refreshList();
+}
+
 void MainWindow::quit()
 {
   // TODO: Popup to confirm quitting
@@ -115,16 +139,3 @@ QSize MainWindow::minimumSizeHint() const
 QSize MainWindow::sizeHint() const
 { return QSize(960, 1080); }
 
-
-// void MainWindow::mousePressEvent(QMouseEvent *event)
-// { }
-// void MainWindow::mouseReleaseEvent(QMouseEvent *event)
-// { }
-// void MainWindow::mouseMoveEvent(QMouseEvent *event)
-// { }
-// void MainWindow::keyPressEvent(QKeyEvent *event)
-// { }
-// void MainWindow::keyReleaseEvent(QKeyEvent *event)
-// { }
-// void MainWindow::wheelEvent(QWheelEvent *event)
-// { }

@@ -34,6 +34,7 @@ protected slots:
   void setTool(int id, bool checked);
   void setLightLevel(int level);
   void setWireframe(int wireframe);
+  void setFrustumCulling(int on);
   void setDebug(int debug);
   void clearFluids();
   void setFluidSim(int on);

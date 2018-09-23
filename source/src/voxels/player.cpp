@@ -12,7 +12,7 @@ Camera::Camera(Point3f pos, Vector3f forward, Vector3f up, Vector3f eyeOffset)
     mEyeOffset(eyeOffset)
 {
   mFrustum.setView(forward, up);
-  mFrustum.setPos(mBox.center() + eyeOffset);
+  mFrustum.setPos(mBox.center() - Vector3f{0,0,PLAYER_SIZE[2]/2.0f} + mEyeOffset);
 }
 
 void Camera::setProjection(float fov, float aspect, float zNear, float zFar)
@@ -25,8 +25,8 @@ Frustum* Camera::getFrustum()
 
 void Camera::setPos(const Point3f &newPos)
 {
-  mBox.setCenter(newPos);
-  mFrustum.setPos(mBox.center() + mEyeOffset);
+  mBox.setCenter(newPos + Vector3f{0,0,PLAYER_SIZE[2]/2.0f});
+  mFrustum.setPos(mBox.center() - Vector3f{0,0,PLAYER_SIZE[2]/2.0f} + mEyeOffset);
 }
 
 void Camera::rotate(float pitch, float yaw)
@@ -40,7 +40,7 @@ Vector3f Camera::getEye() const
 }
 Point3f Camera::getPos() const
 {
-  return mBox.center();
+  return mBox.center() - Vector3f{0,0,PLAYER_SIZE[2]/2.0f};
 }
 
 Matrix4 Camera::getView() const
@@ -116,7 +116,7 @@ void Player::place()
     {
       if(mSelectedBlock.type != block_t::NONE)
 	{
-	  if(!mBox.collidesEdge(cBoundingBox(mSelectedPos + mSelectedFace + Vector3f{0.5, 0.5, 0.5},
+	  if(!mBox.collidesEdge(cBoundingBox(mSelectedPos + mSelectedFace,
                                              Vector3f{1, 1, 1} )))
 	    {
 	      LOGI("Player placed block! --> %d", (int)mSelectedBlock.type);
@@ -156,7 +156,7 @@ void Player::cleanupGL()
 void Player::render(Matrix4 pvm)
 {
   Vector3f selectRay = (mSelectMode ? mSelectRay : getEye());
-  if(!mWorld->rayCast(mBox.center() + mEyeOffset, selectRay, mReach,
+  if(!mWorld->rayCast(mBox.center() - Vector3f{0,0,PLAYER_SIZE[2]/2.0f} + mEyeOffset, selectRay, mReach,
 		      mSelectedBlock, mSelectedPos, mSelectedFace ))
     { mSelectedBlock = {block_t::NONE, nullptr}; }
   
@@ -334,7 +334,7 @@ void Player::update(double dt)
               }
 	}
     }
-  mBox.setCenter(center);
+  //mBox.setCenter(center);
 
   Point3i chunkPos = World::chunkPos(Point3i{(int)center[0],(int)center[1],(int)center[2]});
   static Point3i lastChunkPos = chunkPos;
@@ -346,7 +346,9 @@ void Player::update(double dt)
   
   mVel[0] *= PLAYER_DRAG;
   mVel[1] *= PLAYER_DRAG;
-  setPos(mBox.center());
+
+  center[2] -= PLAYER_SIZE[2]/2.0f;
+  setPos(center);
 }
 
 

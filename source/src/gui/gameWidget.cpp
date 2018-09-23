@@ -179,7 +179,7 @@ void GameWidget::resume()
 void GameWidget::endGame()
 {
   stop();
-  mEngine->getWorld()->clear();
+  mEngine->getWorld()->reset();
   emit mainMenu();
 }
   
@@ -368,14 +368,16 @@ void GameWidget::keyPressEvent(QKeyEvent *event)
     case Qt::Key_Space:
       data.type = input_t::ACTION_JUMP;
       data.action.magnitude = 0.18;
+      data.action.keyDown = true;
       break;
     case Qt::Key_Control:
       data.type = input_t::ACTION_SNEAK;
-      data.action.magnitude = 1.0;
+      data.action.magnitude = 0.2;
+      data.action.keyDown = true;
       break;
 
     case Qt::Key_P:
-      mEngine->getWorld()->setFrustumPause();
+      mEngine->getWorld()->pauseFrustumCulling();
       break;
       
     default:
@@ -422,6 +424,12 @@ void GameWidget::keyReleaseEvent(QKeyEvent *event)
       data.type = input_t::MOVE_DOWN;
       data.movement.magnitude = 1.0;
       data.movement.keyDown = false;
+      break;
+      
+    case Qt::Key_Control:
+      data.type = input_t::ACTION_SNEAK;
+      data.action.magnitude = 1.0;
+      data.action.keyDown = false;
       break;
       
     default:

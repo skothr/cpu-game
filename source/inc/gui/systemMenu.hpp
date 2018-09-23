@@ -20,6 +20,7 @@ public:
   };
   int addMenu(const Menu &menu);
   int addWidget(QWidget *widget);
+  int currentMenu() const;
 
 signals:
   void menuChanged(int id);
