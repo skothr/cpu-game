@@ -1,71 +1,55 @@
 #include "world.hpp"
-
-#include "timing.hpp"
+#include "params.hpp"
 #include "shader.hpp"
-#include "textureAtlas.hpp"
-#include "chunkLoader.hpp"
 #include "pointMath.hpp"
 #include "meshBuffer.hpp"
-#include "params.hpp"
+#include "mesh.hpp"
 #include "fluid.hpp"
 #include "fluidChunk.hpp"
 #include "meshRenderer.hpp"
 #include "rayTracer.hpp"
-#include "model.hpp"
-#include "mesh.hpp"
+
+#include "chunkLoader.hpp"
+#include "chunkVisualizer.hpp"
+
 #include <unistd.h>
 #include <random>
 
+
+#define FOG_START 0.9
+#define FOG_END 1.1
+
+
 World::World()
-  : mLoader(new ChunkLoader(1, std::bind(&World::chunkLoadCallback, this, std::placeholders::_1))),
-    mRenderer(new MeshRenderer()),
-    mRayTracer(new RayTracer()),
-    mCenterLoopCallback(std::bind(&World::checkChunkLoad, this, std::placeholders::_1))
+  : mLoader(new ChunkLoader(1, std::bind(&World::chunkLoadCallback,
+                                         this, std::placeholders::_1 ))),
+    mRenderer(new MeshRenderer()), mRayTracer(new RayTracer()),
+    mVisualizer(new ChunkVisualizer(Vector2i{512, 512}))
 {
+  mChunkMap.setLoader(mLoader);
   mFluids.setRange(mMinChunk, mMaxChunk);
   mRenderer->setFluids(&mFluids);
+  mRenderer->setMap(&mChunkMap);
   //mRayTracer->setFluids(&mFluids);
 }
 
 World::~World()
 {
-  //mLoader->savePlayerPos(mPlayerStartPos);
   stop();
-  mLoader->flush();
-  delete mLoader;
   delete mRenderer;
   delete mRayTracer;
-  
-  for(auto &chunk : mChunks)
-    {
-      if(chunk.second)
-        { delete chunk.second; }
-    }
-  while(mLoadQueue.size() > 0)
-    {
-      Chunk *chunk = mLoadQueue.front();
-      mLoadQueue.pop_front();
-      if(chunk)
-        { delete chunk; }
-    }
-  while(mUnusedChunks.size() > 0)
-    {
-      Chunk *chunk = mUnusedChunks.front();
-      mUnusedChunks.pop();
-      if(chunk)
-        { delete chunk; }
-    }
+  delete mLoader;
 }
 
 void World::start()
 {
   mLoader->start();
-  mRenderer->start();
+  mRenderer->startMeshing();
 }
 void World::stop()
 {
   mLoader->stop();
-  mRenderer->stop();
+  mRenderer->stopMeshing();
 }
 
 std::vector<World::Options> World::getWorlds() const
@@ -92,7 +76,15 @@ void World::updateInfo(const World::Options &opt)
   mCenter = chunkPos(opt.playerPos);
   mMinChunk = mCenter - mLoadRadius;
   mMaxChunk = mCenter + mLoadRadius;
+  
   mFluids.setRange(mMinChunk, mMaxChunk);
+  auto unload = mChunkMap.unloadOutside(mMinChunk-1, mMaxChunk+1);
+  for(auto hash : unload)
+    {
+      mRenderer->unload(hash);
+      //mRayTracer->unload(hash);
+      mVisualizer->unload(hash);
+    }
 
   Vector3f bSize = mLoadRadius*Chunk::size;
   if(bSize[0] == 0) bSize[0] += Chunk::sizeX/2;
@@ -101,10 +93,10 @@ void World::updateInfo(const World::Options &opt)
   float minDim = std::min(bSize[0], std::min(bSize[1], bSize[2]));
   mDirScale = Vector3f{minDim/bSize[0],minDim/bSize[1],minDim/bSize[2]};
   mDirScale *= mDirScale;
-  mFogStart = (minDim)*0.98f;
-  mFogEnd = (minDim)*1.0f;
+  mFogStart = (minDim)*FOG_START;
+  mFogEnd = (minDim)*FOG_END;
   mRenderer->setFog(mFogStart, mFogEnd, mDirScale);
-  mRayTracer->setFog(mFogStart, mFogEnd, mDirScale);
+  //mRayTracer->setFog(mFogStart, mFogEnd, mDirScale);
 }
 
 bool World::loadWorld(World::Options &opt)
@@ -182,7 +174,7 @@ bool World::deleteWorld(const std::string &worldName)
 
 int World::getHeightAt(const Point2i &xy, bool *success)
 {
-  std::lock_guard<std::mutex> lock(mChunkLock);
+  //std::lock_guard<std::mutex> lock(mChunkLock);
   for(int z = 0; z < 4*Chunk::sizeZ; z++)
     {
       Point3i min{xy[0]-START_SPACE_BLOCK_W/2, xy[1]-START_SPACE_BLOCK_W/2, z};
@@ -193,9 +185,8 @@ int World::getHeightAt(const Point2i &xy, bool *success)
         for(p[1] = min[1]; p[1] <= max[1]; p[1]++)
           for(p[2] = min[2]; p[2] <= max[2]; p[2]++)
             {
-              auto cIter = mChunks.find(Hash::hash(chunkPos(p)));
-              if(cIter == mChunks.end() || !cIter->second ||
-                 cIter->second->getType(Chunk::blockPos(p)) != block_t::NONE )
+              ChunkPtr chunk = mChunkMap[chunkPos(p)];
+              if(!chunk || chunk->getType(Chunk::blockPos(p)) != block_t::NONE )
                 {
                   open = false;
                   break;
@@ -215,9 +206,9 @@ int World::getHeightAt(const Point2i &xy, bool *success)
 
 Point3f World::getStartPos()
 {
-  return Point3f({mPlayerStartPos[0] + 0.5f,
-                  mPlayerStartPos[1] + 0.5f,
-                  mPlayerStartPos[2] });
+  return Point3f({(float)mPlayerStartPos[0] + (mPlayerStartPos[0] >= 0 ? 0.5f : -0.5f),
+                  (float)mPlayerStartPos[1] + (mPlayerStartPos[1] >= 0 ? 0.5f : -0.5f),
+                  (float)mPlayerStartPos[2] + 0.5f });
 }
 
 static auto startt = std::chrono::high_resolution_clock::now();
@@ -239,7 +230,7 @@ bool World::readyForPlayer()
       bool success = false;
       int z = getHeightAt(Point2f{mPlayerStartPos[0], mPlayerStartPos[1]}, &success);
 
-      if(mNumLoaded > 64)
+      if(mChunkMap.numLoaded() > 64)
         {
           success = true;
           z = 0;
@@ -264,7 +255,7 @@ bool World::readyForPlayer()
           for(p[0] = min[0]; p[0] <= max[0]; p[0]++)
             for(p[1] = min[1]; p[1] <= max[1]; p[1]++)
                 {
-                  //setBlock(p, block_t::NONE);
+                  setBlock(p, block_t::NONE);
                   setBlock(p, block_t::STONE);
                 }
 
@@ -299,56 +290,53 @@ void World::clearFluids()
 int World::numMeshed()
 { return mRenderer->numMeshed(); }
 
+int World::numLoaded() const
+{ return mChunkMap.numLoaded(); }
+
 bool World::chunkIsLoading(const Point3i &cp)
 {
-  auto iter = mChunks.find(Hash::hash(cp));
-  return (iter != mChunks.end() && !iter->second);
+  return mChunkMap.isLoading(cp);
 }
 bool World::chunkIsLoaded(const Point3i &cp)
 {
-  auto iter = mChunks.find(Hash::hash(cp));
-  return (iter != mChunks.end() && iter->second);
+  return mChunkMap.isLoaded(cp);
 }
 bool World::chunkIsMeshed(const Point3i &cp)
 {
-  auto iter = mChunks.find(Hash::hash(cp));
-  return (iter != mChunks.end() && iter->second && mRenderer->isMeshed(Hash::hash(cp)));
+  return (mRenderer->isMeshed(Hash::hash(cp)));
+}
+bool World::chunkIsMeshing(const Point3i &cp)
+{
+  return (mRenderer->isMeshing(Hash::hash(cp)));
 }
 bool World::chunkIsEmpty(const Point3i &cp)
 {
-  auto iter = mChunks.find(Hash::hash(cp));
-  return (iter != mChunks.end() && iter->second && iter->second->isEmpty());
+  ChunkPtr chunk = mChunkMap[cp];
+  return (chunk && chunk->isEmpty());
+}
+bool World::chunkIsReady(const Point3i &cp)
+{
+  /*
+  ChunkPtr chunk = mChunkMap[cp];
+  if(chunk)
+    { return chunk->isReady(); }
+  else
+    { return false; }
+  */
+  return mChunkMap.isReady(cp);
+}
+bool World::chunkIsVisible(const Point3i &cp)
+{
+  return mRenderer->isVisible(Hash::hash(cp));
 }
 
 void World::reset()
 {
   clearFluids();
-
-  for(auto &chunk : mChunks)
-    {
-      if(chunk.second)
-        { delete chunk.second; }
-    }
-  mChunks.clear();
-  while(mLoadQueue.size() > 0)
-    {
-      Chunk *chunk = mLoadQueue.front();
-      mLoadQueue.pop_front();
-      if(chunk)
-        { delete chunk; }
-    }
-  while(mUnusedChunks.size() > 0)
-    {
-      Chunk *chunk = mUnusedChunks.front();
-      mUnusedChunks.pop();
-      if(chunk)
-        { delete chunk; }
-    }
+  mChunkMap.clear();
+  
   mResetGL = true;
   mPlayerReady = false;
-  mNumLoaded = 0;
-  mNumLoading = 0;
-  mCenterDistIndex = 0;
 }
 
 bool World::initGL(QObject *qParent)
@@ -360,13 +348,20 @@ bool World::initGL(QObject *qParent)
       else
         { mRenderer->setFog(mFogStart, mFogEnd, mDirScale); }
       
-      if(!mRayTracer->initGL(qParent))
+      // if(!mRayTracer->initGL(qParent))
+      //   {
+      //     mRenderer->cleanupGL();
+      //     return false;
+      //   }
+      // else
+      //   { mRayTracer->setFog(mFogStart, mFogEnd, mDirScale); }
+
+      if(!mVisualizer->initGL(qParent))
         {
           mRenderer->cleanupGL();
+          //mRayTracer->cleanupGL();
           return false;
         }
-      else
-        { mRayTracer->setFog(mFogStart, mFogEnd, mDirScale); }
       
       mChunkLineShader = new Shader(qParent);
       if(!mChunkLineShader->loadProgram("./shaders/chunkLine.vsh", "./shaders/chunkLine.fsh",
@@ -376,8 +371,9 @@ bool World::initGL(QObject *qParent)
           LOGE("Chunk line shader failed to load!");
           delete mChunkLineShader;
           mChunkLineShader = nullptr;
+          mVisualizer->cleanupGL();
           mRenderer->cleanupGL();
-          mRayTracer->cleanupGL();
+          //mRayTracer->cleanupGL();
           return false;
         }
       else
@@ -404,8 +400,9 @@ bool World::initGL(QObject *qParent)
           mChunkLineShader = nullptr;
           delete mFrustumShader;
           mFrustumShader = nullptr;
+          mVisualizer->cleanupGL();
           mRenderer->cleanupGL();
-          mRayTracer->cleanupGL();
+          //mRayTracer->cleanupGL();
           return false;
         }
       else
@@ -429,7 +426,8 @@ void World::cleanupGL()
   if(mInitialized)
     {
       mRenderer->cleanupGL();
-      mRayTracer->cleanupGL();
+      //mRayTracer->cleanupGL();
+      mVisualizer->cleanupGL();
       delete mChunkLineMesh;
       mChunkLineMesh = nullptr;
       delete mChunkLineShader;
@@ -447,44 +445,50 @@ void World::render(const Matrix4 &pvm)
 {
   if(mRaytrace)
     {
-      mRayTracer->render(pvm, mCamPos);
+      //mRayTracer->render(pvm, mCamPos);
     }
   else
     {
       mRenderer->render(pvm, mCamPos, mResetGL);
     }
-
+  
+  //mVisualizer->render();
   mResetGL = false;
+  
+  if(mRadChanged)
+    {
+      mChunkLineShader->bind();
+      mChunkLineShader->setUniform("fogStart", mFogStart);
+      mChunkLineShader->setUniform("fogEnd", mFogEnd);
+      mChunkLineShader->setUniform("dirScale", mDirScale);
+      mFrustumShader->bind();
+      mFrustumShader->setUniform("fogStart", mFogStart);
+      mFrustumShader->setUniform("fogEnd", mFogEnd);
+      mFrustumShader->setUniform("dirScale", mDirScale);
+      mFrustumShader->release();
+      mRadChanged = false;
+    }
 
   if(mDebug)
     {
       // render all loaded chunks
+      glLineWidth(10.0);
       mChunkLineShader->bind();
-      mChunkLineMesh->uploadData(makeChunkLineMesh());
       mChunkLineShader->setUniform("pvm", pvm*matTranslate(mMinChunk[0]*Chunk::sizeX,
                                                            mMinChunk[1]*Chunk::sizeY,
                                                            mMinChunk[2]*Chunk::sizeZ ));
+      mChunkLineMesh->uploadData(makeChunkLineMesh());
       mChunkLineShader->setUniform("camPos", mCamPos);
-      if(mRadChanged)
-        {
-          mChunkLineShader->setUniform("fogStart", mFogStart);
-          mChunkLineShader->setUniform("fogEnd", mFogEnd);
-          mChunkLineShader->setUniform("dirScale", mDirScale);
-          
-          mFrustumShader->bind();
-          mFrustumShader->setUniform("fogStart", mFogStart);
-          mFrustumShader->setUniform("fogEnd", mFogEnd);
-          mFrustumShader->setUniform("dirScale", mDirScale);
-          mFrustumShader->release();
-          mRadChanged = false;
-        }
-      mChunkLineShader->bind();
       mChunkLineMesh->render();
       mChunkLineShader->release();
+      //glLineWidth(1.0);
       
-      // render all loaded chunks
+    }
+  // render all loaded chunks
+  if(mFrustumPaused)
+    {
       mFrustumShader->bind();
-      mFrustumShader->setUniform("pvm", pvm);//*matTranslate();
+      mFrustumShader->setUniform("pvm", pvm);
       mFrustumShader->setUniform("camPos", mCamPos);
       mFrustumMesh->uploadData(mRenderer->makeFrustumMesh());
       mFrustumMesh->render();
@@ -492,227 +496,163 @@ void World::render(const Matrix4 &pvm)
     }
 }
 
-bool World::checkChunkLoad(const Point3i &cp)
-{
-  const int cHash = Hash::hash(cp);
-  auto iter = mChunks.find(cHash);
-  if(iter == mChunks.end())
-    {
-      Chunk *chunk = nullptr;
-      if(mUnusedChunks.size() > 0)
-        {
-          chunk = mUnusedChunks.front();
-          mUnusedChunks.pop();
-          chunk->setWorldPos(cp);
-        }
-      else
-        { chunk = new Chunk(cp); }
-
-      mChunks.emplace(cHash, nullptr);
-      mLoader->load(chunk);
-      return true;
-    }
-    
-  return false;
-}
+#define LOAD_PER_UPDATE 512
+#define SAVES_PER_UPDATE 4
 
 void World::update()
 {
   auto start = std::chrono::high_resolution_clock::now();
-  std::vector<std::pair<hash_t, Chunk*>> unload;
-  {
-    std::lock_guard<std::mutex> lock(mChunkLock);
-    // find any chunks that are out of range to unload
-    for(auto &iter : mChunks)
-      {
-        if(!pointInRange(Hash::unhash(iter.first), mMinChunk, mMaxChunk))
-          { unload.push_back(iter); }
-      }
-  }
-  // unload the chunks
-  for(auto uIter : unload)
-    {
-      hash_t cHash = uIter.first;
-      Chunk *chunk = uIter.second;
-      if(chunk)
-        {
-          mRenderer->unload(cHash);
-          mRayTracer->unload(cHash);
-          
-          if(chunk->needsSave())
-            {
-              chunk->setNeedSave(false);
-              mLoader->save(chunk);
-            }
+  mChunkMap.update();
 
-          for(auto &side : gBlockSides)
-            { // remove this chunk from neighbors
-              Chunk *n = chunk->getNeighbor(side);
-              if(n)
+  /*
+  Point3i p;
+  int i = 0;
+  for(p[0] = mMinChunk[0]-1; p[0] <= mMaxChunk[0]+1; p[0]++)
+    for(p[1] = mMinChunk[1]-1; p[1] <= mMaxChunk[1]+1; p[1]++)
+      for(p[2] = mMinChunk[2]-1; p[2] <= mMaxChunk[2]+1; p[2]++)
+        {
+          if(!mChunkMap.isLoading(p) && !mChunkMap.isLoaded(p))
+            {
+              mChunkMap.load(p);
+            }
+        }
+  
+  TreeNode tree = mChunkMap.getTree();
+  std::queue<TreeNode*> steps;
+  steps.push(&tree);
+
+  while(steps.size() > 0)
+    {
+      TreeNode *node = steps.front();
+      steps.pop();
+
+      ChunkPtr chunk = node->chunk;
+      hash_t hash = node->hash;
+      
+      bool loaded = mChunkMap.isLoaded(node->pos);
+      if(!mChunkMap.isLoading(node->pos) && !loaded)
+        {
+          mChunkMap.load(node->pos);
+          //if(++i >= LOAD_PER_UPDATE)
+          //{ break; }
+        }
+      else if(loaded)
+        {
+          // TODO: Optimize (currently calculating same hash a few times)
+          if(chunk)
+            {
+              // if(mRenderer->isMeshed(hash))
+              //   { mVisualizer->setState(hash, ChunkState::MESHED); }
+              // else if(chunk->isReady())
+              //   { mVisualizer->setState(hash, ChunkState::READY); }
+              // else
+              //   { mVisualizer->setState(hash, ChunkState::LOADED); }
+              
+              if(chunk->isReady() && chunk->isDirty())
+                { // mesh needs updating
+                  bool priority = chunk->isPriority();
+                  chunk->setDirty(false);
+                  chunk->setPriority(false);
+                  LOGD("MESHING CHUNK!!");
+                  mRenderer->load(chunk, mCenter, priority);
+                  mRayTracer->load(hash, chunk);
+                }
+
+              for(auto &c : node->children)
+                { steps.push(&c); }
+
+              // save chunk
+              if(chunk->needsSave())
                 {
-                  n->setReady(false);
-                  n->unsetNeighbor(oppositeSide(side));
-                  n->unsetNeighbor(side);
+                  mLoader->save(chunk);
+                  chunk->setNeedSave(false);
                 }
             }
-          mNumLoaded--;
-          mUnusedChunks.push(chunk);
         }
-      
-      std::lock_guard<std::mutex> lock(mChunkLock);
-      mChunks.erase(cHash);
+      // else
+      //   {
+      //     mVisualizer->setState(hash, ChunkState::LOADING);
+      //   }
     }
-  
-  { // start loading chunks in range
-    const std::vector<Point3i> &distPoints = getCenterDistPoints(mCenter, mLoadRadius);
-    for(int i = 0; i < distPoints.size(); i++)
-      {
-        const Point3i cp = mCenter + distPoints[i];//{x,y,z};
-        const int cHash = Hash::hash(cp);
-        auto iter = mChunks.find(cHash);
-        if(iter == mChunks.end())
-          {
-            Chunk *chunk = nullptr;
-            if(mUnusedChunks.size() > 0)
-              {
-                chunk = mUnusedChunks.front();
-                mUnusedChunks.pop();
-                chunk->setWorldPos(cp);
-              }
-            else
-              { chunk = new Chunk(cp); }
+*/
 
-            {
-              std::lock_guard<std::mutex> lock(mChunkLock);
-              mChunks.emplace(cHash, nullptr);
-            }
-            mLoader->load(chunk);
-            if(mNumLoading++ > mLoader->numThreads()*4)
-              { break; }
-          }
-      }
-  }
-  
-  while(true) // activate chunks that are done loading
-    {
-      Chunk *chunk = nullptr;
-      {
-        std::lock_guard<std::mutex> lock(mLoadLock);
-        if(mLoadQueue.size() > 0)
-          {
-            chunk = mLoadQueue.front();
-            mLoadQueue.pop_front();
-          }
-        else
-          { break; }
-      }
-      if(chunk && pointInRange(chunk->pos(), mMinChunk, mMaxChunk))
+  Point3i p;
+  int i = 0;
+  int saves = 0;
+  for(p[0] = mMinChunk[0]-1; p[0] <= mMaxChunk[0]+1; p[0]++)
+    for(p[1] = mMinChunk[1]-1; p[1] <= mMaxChunk[1]+1; p[1]++)
+      for(p[2] = mMinChunk[2]-1; p[2] <= mMaxChunk[2]+1; p[2]++)
         {
-          const hash_t cHash = Hash::hash(chunk->pos());
-          {
-            std::lock_guard<std::mutex> lock(mChunkLock);
-            auto iter = mChunks.find(cHash);
-            if(iter != mChunks.end())
-              {
-                if(iter->second)
-                  {
-                    mUnusedChunks.push(iter->second);
-                  }
-                else
-                  { mNumLoaded++; }
-                  
-                iter->second = chunk;
-                  
-                // add neighbors
-                for(auto &side : gBlockSides)
-                  {
-                    const hash_t nHash = Hash::hash(chunk->pos() + sideDirection(side));
-                    auto nIter = mChunks.find(nHash);
-                    if(nIter != mChunks.end() && nIter->second)
-                      {
-                        chunk->setNeighbor(side, nIter->second);
-                        nIter->second->setNeighbor(oppositeSide(side), chunk);
-                      }
-                  }
-                  
-                if(chunk->isEmpty())
-                  { // empty mesh
-                    chunk->setDirty(true);
-                    chunk->setReady(true);
-                  }
-                else
-                  {
-                    chunk->setDirty(true);
-                    chunk->setReady(false);
-                  }
-              }
-            else
-              { LOGW("LOADED CHUNK DESTROYED"); }
-          }
-        }
-    }
-  
-  { // update dirty meshes
-    std::lock_guard<std::mutex> lock(mChunkLock);
-    for(auto &iter : mChunks)
-      {
-        Chunk *chunk = iter.second;
-        const hash_t cHash = iter.first;
-        if(chunk && !chunk->isEmpty())
-          {
-            const Point3i cp = chunk->pos();
-            if(cp[0] > mMinChunk[0] || cp[0] < mMaxChunk[0] &&
-               cp[1] > mMinChunk[1] || cp[1] < mMaxChunk[1] &&
-               cp[2] > mMinChunk[2] || cp[2] < mMaxChunk[2] )
-              {
-                bool nLoaded = neighborsLoaded(cHash, chunk);
-                if(!chunk->isReady() && nLoaded)
-                  {
-                    chunk->setReady(true);
-                    chunk->setDirty(true);
-                  }
-                // else if(chunk->isReady() && !nLoaded)
-                //   {
-                //     chunk->setReady(false);
-                //     mRenderer->unload(iter.first);
-                //     mRayTracer->unload(iter.first);
-                //   }
-            
-                if(chunk->isReady() && chunk->isDirty())
-                  { // mesh needs updating
-                    chunk->setDirty(false);
-                    mRenderer->load(chunk, mCenter);
-                    mRayTracer->load(iter.first, chunk);
-                  }
-              }
-          }
-      }
-  }
-  
-  std::vector<Chunk*> saveChunks;
-  { // save any chunks that have been modified
-    std::lock_guard<std::mutex> lock(mChunkLock);
-    for(auto &iter : mChunks)
-      {
-        if(iter.second && iter.second->needsSave())
-          { saveChunks.push_back(iter.second); }
-      }
-  }
-  for(auto &chunk : saveChunks)
-    {
-      mLoader->save(chunk);
-      chunk->setNeedSave(false);
-    }
-  double t = (std::chrono::high_resolution_clock::now() - start).count();
+          hash_t hash = Hash::hash(p);
+          bool loaded = mChunkMap.isLoaded(p);
+          bool ready = mChunkMap.isReady(p);
+          if(!mChunkMap.isLoading(p) && !loaded)
+            {
+              mChunkMap.load(p);
+              if(++i >= LOAD_PER_UPDATE)
+              { break; }
+            }
+          else if(loaded)
+            {
+              ChunkPtr chunk = mChunkMap[hash];
+              // TODO: Optimize (currently calculating same hash a few times)
+              if(chunk)
+                {
+                  // if(mRenderer->isMeshed(Hash::hash(p)))
+                  //   { mVisualizer->setState(hash, ChunkState::MESHED); }
+                  // else if(chunk->isReady())
+                  //   { mVisualizer->setState(hash, ChunkState::READY); }
+                  // else
+                  //   { mVisualizer->setState(hash, ChunkState::LOADED); }
+              
+                  if(chunk->isDirty())
+                    { // mesh needs updating
+                      if(ready)
+                        {
+                          chunk->setDirty(false);
+                          bool priority = chunk->isPriority();
+                          chunk->setPriority(false);
+                          mRenderer->load(chunk, mCenter, priority);
+                          //mRayTracer->load(hash, chunk);
+                        }
+                      else if(chunk->isUnloaded())
+                        {
+                          chunk->setDirty(false);
+                          chunk->setUnloaded(false);
+                          mRenderer->unload(hash);
+                        }
+                    }
 
-  std::lock_guard<std::mutex> lock(mTimingLock);
-  mMeshTime += t;
-  mMeshNum++;
-  if(mMeshNum >= 16)
+                  // save chunk
+                  if(chunk->needsSave())
+                    {
+                      mLoader->save(chunk);
+                      chunk->setNeedSave(false);
+                      if(++saves >= SAVES_PER_UPDATE)
+                        { break; }
+                    }
+                }
+            }
+          // else
+          //   {
+          //     mVisualizer->setState(hash, ChunkState::LOADING);
+          //   }
+        }
+  
+  
+  mUpdateTime += (std::chrono::high_resolution_clock::now() - start).count();
+  mUpdateCount++;
+  if(mUpdateCount >= 2)
     {
-      //LOGD("Avg Update Time: %f", mMeshTime / mMeshNum / 1000000000.0);
-      mMeshTime = 0.0;
-      mMeshNum = 0;
+      LOGD("Update Time: %f", mUpdateTime / 2 / 1000000000.0f);
+      mUpdateTime = 0.0;
+      mUpdateCount = 0;
+    }
+
+  if(mVisualizerRotate.max() != 0.0f || mVisualizerRotate.min() != 0.0f)
+    {
+      Vector3f eyeAngle = mVisualizer->getEyeAngle();
+      mVisualizer->setEyeAngle(eyeAngle + mVisualizerRotate);
     }
 }
 
@@ -723,21 +663,19 @@ void World::step()
 
   std::unordered_map<hash_t, bool> updates = mFluids.step(mEvapRate);
   
-  std::lock_guard<std::mutex> lock(mChunkLock);
+  //std::lock_guard<std::mutex> lock(mChunkLock);
   for(auto &c : updates)
     {
       if(c.second)
         {
-          auto iter = mChunks.find(c.first);
-          if(iter != mChunks.end() && iter->second)
-            { iter->second->setDirty(true); }
+          ChunkPtr chunk = mChunkMap[Hash::unhash(c.first)]; // TOO: Remove unhash
+          if(chunk)
+            {
+              chunk->update();
+              chunk->setDirty(true);
+              chunk->setPriority(true);
+            }
         }
-    }
-
-  for(auto &cIter : mChunks)
-    {
-      if(cIter.second)
-        { cIter.second->update(); }
     }
 }
 
@@ -753,99 +691,48 @@ blockSide_t World::getEdges(hash_t hash)
   return edges;
 }
 
-bool World::neighborsLoaded(hash_t hash, Chunk *chunk)
-{
-  const blockSide_t edgeSides = getEdges(hash);
-  int loaded = 0;
-  for(auto side : gBlockSides)
-    {
-      Chunk *neighbor = chunk->getNeighbor(side);
-      if(((edgeSides & side) != blockSide_t::NONE) || neighbor)
-        { loaded++; }
-      else
-        {
-          auto cIter = mChunks.find(Hash::hash(chunk->pos() + sideDirection(side)));
-          if(cIter != mChunks.end())
-            { chunk->setNeighbor(side, cIter->second); }
-          if(chunk->getNeighbor(side))
-            { loaded++; }
-        }
-    }
-  return loaded == gBlockSides.size();
-}
-
-void World::updateAdjacent(const Point3i &wp)
-{
-  const Point3i cp = chunkPos(wp);
-  const Point3i np = cp + sideDirection(Chunk::chunkEdge(Chunk::blockPos(wp)));
-  const Point3i minP{std::min(cp[0], np[0]),
-                     std::min(cp[1], np[1]),
-                     std::min(cp[2], np[2]) };
-  const Point3i maxP{std::max(cp[0], np[0]),
-                     std::max(cp[1], np[1]),
-                     std::max(cp[2], np[2]) };
-  Point3i p;
-  for(p[0] = minP[0]; p[0] <= maxP[0]; p[0]++)
-    for(p[1] = minP[1]; p[1] <= maxP[1]; p[1]++)
-      for(p[2] = minP[2]; p[2] <= maxP[2]; p[2]++)
-        {
-          auto iter = mChunks.find(Hash::hash(p));
-          if(iter != mChunks.end() && iter->second)
-            {
-              iter->second->setDirty(true);
-            }
-        }
-}
-
 block_t* World::at(const Point3i &worldPos)
 {
-  std::lock_guard<std::mutex> lock(mChunkLock);
-  Point3i cp = chunkPos(worldPos);
-  auto iter = mChunks.find(Hash::hash(cp));
-  if(iter != mChunks.end() && iter->second)
-    { return iter->second->at(Chunk::blockPos(worldPos)); }
+  ChunkPtr chunk = mChunkMap[chunkPos(worldPos)];
+  if(chunk)
+    { return chunk->at(Chunk::blockPos(worldPos)); }
   else
     { return nullptr; }
 }
 block_t World::getType(const Point3i &worldPos)
 {
-  std::lock_guard<std::mutex> lock(mChunkLock);
-  Point3i cp = chunkPos(worldPos);
-  auto iter = mChunks.find(Hash::hash(cp));
-  if(iter != mChunks.end() && iter->second)
-    { return iter->second->getType(Chunk::blockPos(worldPos)); }
+  ChunkPtr chunk = mChunkMap[chunkPos(worldPos)];
+  if(chunk)
+    { return chunk->getType(Chunk::blockPos(worldPos)); }
   else
     { return block_t::NONE; }
 }
 
-Chunk* World::getChunk(const Point3i &worldPos)
+ChunkPtr World::getChunk(const Point3i &worldPos)
 {
-  std::lock_guard<std::mutex> lock(mChunkLock);
-  auto iter = mChunks.find(Hash::hash(chunkPos(worldPos)));
-  if(iter != mChunks.end() && iter->second)
-    { return iter->second; }
-  else
-    { return nullptr; }
+  return mChunkMap[chunkPos(worldPos)];
+}
+
+void World::rotateVisualizer(const Vector3f &angle)
+{
+  mVisualizerRotate += angle;
 }
 
 bool World::setBlock(const Point3i &worldPos, block_t type, BlockData *data)
 {
-  std::lock_guard<std::mutex> lock(mChunkLock);
+  //std::lock_guard<std::mutex> lock(mChunkLock);
   Point3i cp = chunkPos(worldPos);
-
-  Chunk *chunk = nullptr;
-  {
-    auto iter = mChunks.find(Hash::hash(cp));
-    if(iter != mChunks.end())
-      { chunk = iter->second; }
-  }
+  ChunkPtr chunk = mChunkMap[cp];
   if(chunk)
     {
+      Point3i bp = Chunk::blockPos(worldPos);
       if((type == block_t::NONE || isSimpleBlock(type)) &&
          chunk->setBlock(Chunk::blockPos(worldPos), type) )
         {
-          updateAdjacent(worldPos);
+          mChunkMap.updateAdjacent(chunkPos(worldPos), Chunk::chunkEdge(bp));
+          chunk->updateConnected();
           chunk->setNeedSave(true);
+          chunk->setPriority(true);
           mFluids.set(worldPos, nullptr);
           return true;
         }
@@ -853,8 +740,9 @@ bool World::setBlock(const Point3i &worldPos, block_t type, BlockData *data)
         {
           if(mFluids.set(worldPos, reinterpret_cast<Fluid*>(data)))
             {
-              updateAdjacent(worldPos);
+              mChunkMap.updateAdjacent(chunkPos(worldPos), Chunk::chunkEdge(bp));
               chunk->setNeedSave(true);
+              chunk->setPriority(true);
               return true;
             }
         }
@@ -862,8 +750,9 @@ bool World::setBlock(const Point3i &worldPos, block_t type, BlockData *data)
         {
           if(chunk->setComplex(Chunk::blockPos(worldPos), {type, data}))
             {
-              updateAdjacent(worldPos);
+              mChunkMap.updateAdjacent(chunkPos(worldPos), Chunk::chunkEdge(bp));
               chunk->setNeedSave(true);
+              chunk->setPriority(true);
               return true;
             }
         }
@@ -875,37 +764,280 @@ bool World::setBlock(const Point3i &worldPos, block_t type, BlockData *data)
   return false;
 }
 
+
+bool World::setSphere(const Point3i &center, int rad, block_t type, BlockData *data)
+{
+  Point3i minP = center - rad;
+  Point3i maxP = center + rad;
+  Point3i cMin = chunkPos(minP);
+  Point3i cMax = chunkPos(maxP);
+  Point3i minB = Chunk::blockPos(minP);
+  Point3i maxB = Chunk::blockPos(maxP);
+  std::unordered_map<ChunkPtr, blockSide_t> chunkUpdates;
+  
+  Point3i cp;
+  for(cp[0] = cMin[0]; cp[0] <= cMax[0]; cp[0]++)
+    for(cp[1] = cMin[1]; cp[1] <= cMax[1]; cp[1]++)
+      for(cp[2] = cMin[2]; cp[2] <= cMax[2]; cp[2]++)
+        {
+          ChunkPtr chunk = mChunkMap[cp];
+          if(chunk)
+            {
+              Point3i wp = cp*Chunk::size;
+              Point3i bmin{cp[0] == cMin[0] ? minB[0] : 0,
+                           cp[1] == cMin[1] ? minB[1] : 0,
+                           cp[2] == cMin[2] ? minB[2] : 0};
+              Point3i bmax{cp[0] == cMax[0] ? maxB[0] : Chunk::sizeX-1,
+                           cp[1] == cMax[1] ? maxB[1] : Chunk::sizeY-1,
+                           cp[2] == cMax[2] ? maxB[2] : Chunk::sizeZ-1};
+
+              bool changed = false;
+              Point3i bp;
+              for(bp[0] = bmin[0]; bp[0] <= bmax[0]; bp[0]++)
+                for(bp[1] = bmin[1]; bp[1] <= bmax[1]; bp[1]++)
+                  for(bp[2] = bmin[2]; bp[2] <= bmax[2]; bp[2]++)
+                    {
+                      Point3i diff =  wp + bp - center;
+                      float dist = sqrt(diff.dot(diff));
+                      if(dist <= rad)
+                        { changed = true; }
+                      if(dist < rad)
+                        {
+                          if((type == block_t::NONE || isSimpleBlock(type)) &&
+                             chunk->setBlock(bp, type) )
+                            {
+                              mFluids.set(bp, nullptr);
+                            }
+                          else if(isFluidBlock(type) && data)
+                            {
+                              mFluids.set(bp, reinterpret_cast<Fluid*>(data));
+                            }
+                        }
+                    }
+              if(changed)
+                {
+                  chunkUpdates.emplace(chunk, (((cp[0] == cMin[0] && bmin[0] == 0 ? blockSide_t::NX :
+                                                 (cp[0] == cMax[0] && bmax[0] == Chunk::sizeX - 1) ?
+                                                 blockSide_t::PX : blockSide_t::NONE )) |
+                                               (((cp[1] == cMin[1] && bmin[1] == 0) ? blockSide_t::NY :
+                                                 (cp[1] == cMax[1] && bmax[1] == Chunk::sizeY - 1) ?
+                                                 blockSide_t::PY : blockSide_t::NONE )) |
+                                               (((cp[2] == cMin[2] && bmin[2] == 0) ? blockSide_t::NZ :
+                                                 (cp[2] == cMax[2] && bmax[2] == Chunk::sizeZ - 1) ?
+                                                 blockSide_t::PZ : blockSide_t::NONE ))));
+                }
+            }
+        }
+  for(auto iter : chunkUpdates)
+    {
+      ChunkPtr chunk = iter.first;
+      chunk->updateConnected();
+      chunk->setNeedSave(true);
+      mChunkMap.updateAdjacent(chunk->pos(), iter.second);
+    }
+  return true;
+}
+  
+bool World::setRange(const Point3i &p1, const Point3i &p2, block_t type, BlockData *data)
+{
+  Point3i pp1{std::min(p1[0], p2[0]), std::min(p1[1], p2[1]), std::min(p1[2], p2[2])};
+  Point3i pp2{std::max(p1[0], p2[0]), std::max(p1[1], p2[1]), std::max(p1[2], p2[2])};
+  Point3i cMin = chunkPos(pp1);
+  Point3i cMax = chunkPos(pp2);
+  Point3i minB = Chunk::blockPos(pp1);
+  Point3i maxB = Chunk::blockPos(pp2);
+  std::unordered_map<ChunkPtr, blockSide_t> chunkUpdates;
+  Point3i cp;
+  for(cp[0] = cMin[0]; cp[0] <= cMax[0]; cp[0]++)
+    for(cp[1] = cMin[1]; cp[1] <= cMax[1]; cp[1]++)
+      for(cp[2] = cMin[2]; cp[2] <= cMax[2]; cp[2]++)
+        {
+          ChunkPtr chunk = mChunkMap[cp];
+          if(chunk)
+            {
+              Point3i wp = cp*Chunk::size;
+              Point3i bmin{cp[0] == cMin[0] ? minB[0] : 0,
+                           cp[1] == cMin[1] ? minB[1] : 0,
+                           cp[2] == cMin[2] ? minB[2] : 0};
+              Point3i bmax{cp[0] == cMax[0] ? maxB[0] : Chunk::sizeX-1,
+                           cp[1] == cMax[1] ? maxB[1] : Chunk::sizeY-1,
+                           cp[2] == cMax[2] ? maxB[2] : Chunk::sizeZ-1};
+              Point3i bp;
+              bool changed = false;
+              for(bp[0] = bmin[0]; bp[0] <= bmax[0]; bp[0]++)
+                for(bp[1] = bmin[1]; bp[1] <= bmax[1]; bp[1]++)
+                  for(bp[2] = bmin[2]; bp[2] <= bmax[2]; bp[2]++)
+                    {
+                      if((type == block_t::NONE || isSimpleBlock(type)) && chunk->setBlock(bp, type))
+                        {
+                          changed = true;
+                          mFluids.set(wp + bp, nullptr);
+                        }
+                      else if(isFluidBlock(type) && data &&
+                              mFluids.set(wp + bp, reinterpret_cast<Fluid*>(data)) )
+                        {
+                          changed = true;
+                        }
+                    }
+              if(changed)
+                {
+                  // if(cp[0] < 0)
+                  //   {
+                  //     bmin[0] = Chunk::sizeX - bmin[0];
+                  //     bmax[0] = Chunk::sizeX - bmax[0];
+                  //   }
+                  // if(cp[1] < 0)
+                  //   {
+                  //     bmin[1] = Chunk::sizeY - bmin[1];
+                  //     bmax[1] = Chunk::sizeY - bmax[1];
+                  //   }
+                  // if(cp[2] < 0)
+                  //   {
+                  //     bmin[2] = Chunk::sizeZ - bmin[2];
+                  //     bmax[2] = Chunk::sizeZ - bmax[2];
+                  //   }
+                  chunkUpdates.emplace(chunk, (((cp[0] == cMin[0] && bmin[0] == 0 ? blockSide_t::NX :
+                                                 (cp[0] == cMax[0] && bmax[0] == Chunk::sizeX - 1) ?
+                                                 blockSide_t::PX : blockSide_t::NONE )) |
+                                               (((cp[1] == cMin[1] && bmin[1] == 0) ? blockSide_t::NY :
+                                                 (cp[1] == cMax[1] && bmax[1] == Chunk::sizeY - 1) ?
+                                                 blockSide_t::PY : blockSide_t::NONE )) |
+                                               (((cp[2] == cMin[2] && bmin[2] == 0) ? blockSide_t::NZ :
+                                                 (cp[2] == cMax[2] && bmax[2] == Chunk::sizeZ - 1) ?
+                                                 blockSide_t::PZ : blockSide_t::NONE ))));
+                }
+            }
+        }
+  for(auto iter : chunkUpdates)
+    {
+      ChunkPtr chunk = iter.first;
+      chunk->updateConnected();
+      chunk->setNeedSave(true);
+      mChunkMap.updateAdjacent(chunk->pos(), iter.second);
+    }
+  return true;
+}
+
+bool World::setRange(const Point3i &center, int rad, block_t type, BlockData *data)
+{
+  Point3i minP = chunkPos(center - rad);
+  Point3i maxP = chunkPos(center + rad);
+  if(minP == maxP)
+    {
+      ChunkPtr chunk = mChunkMap[minP];
+      if(chunk)
+        {
+          Point3i wp = minP*Chunk::size;
+          Point3i minB = Chunk::blockPos(center - rad);
+          Point3i maxB = Chunk::blockPos(center + rad);
+          Point3i bp;
+          blockSide_t edges = blockSide_t::NONE;
+          for(bp[0] = minB[0]; bp[0] <= maxB[0]; bp[0]++)
+            for(bp[1] = minB[1]; bp[1] <= maxB[1]; bp[1]++)
+              for(bp[2] = minB[2]; bp[2] <= maxB[2]; bp[2]++)
+                {
+                  if((type == block_t::NONE || isSimpleBlock(type)) && chunk->setBlock(bp, type))
+                    {
+                      mFluids.set(wp + bp, nullptr);
+                      edges |= Chunk::chunkEdge(bp);
+                    }
+                  else if(isFluidBlock(type) && data)
+                    {
+                      if(mFluids.set(wp + bp, reinterpret_cast<Fluid*>(data)))
+                        {
+                          edges |= Chunk::chunkEdge(bp);
+                        }
+                    }
+                }
+          chunk->updateConnected();
+          chunk->setNeedSave(true);
+          // chunk->setPriority(true);
+          // chunk->setDirty(true);
+          mChunkMap.updateAdjacent(minP, edges);
+          return true;
+        }
+    }
+  else
+    {
+      Point3i minB = Chunk::blockPos(center - rad);
+      Point3i maxB = Chunk::blockPos(center + rad);
+      Point3i cp;
+      for(cp[0] = minP[0]; cp[0] <= maxP[0]; cp[0]++)
+        for(cp[1] = minP[1]; cp[1] <= maxP[1]; cp[1]++)
+          for(cp[2] = minP[2]; cp[2] <= maxP[2]; cp[2]++)
+            {
+              ChunkPtr chunk = mChunkMap[cp];
+              if(chunk)
+                {
+                  Point3i wp = cp*Chunk::size;
+                  Point3i bmin{cp[0] == minP[0] ? minB[0] : 0,
+                               cp[1] == minP[1] ? minB[1] : 0,
+                               cp[2] == minP[2] ? minB[2] : 0};
+                  Point3i bmax{cp[0] == maxP[0] ? maxB[0] : Chunk::sizeX-1,
+                               cp[1] == maxP[1] ? maxB[1] : Chunk::sizeY-1,
+                               cp[2] == maxP[2] ? maxB[2] : Chunk::sizeZ-1};
+                  blockSide_t edges = blockSide_t::NONE;
+                  Point3i bp;
+                  for(bp[0] = bmin[0]; bp[0] <= bmax[0]; bp[0]++)
+                    for(bp[1] = bmin[1]; bp[1] <= bmax[1]; bp[1]++)
+                      for(bp[2] = bmin[2]; bp[2] <= bmax[2]; bp[2]++)
+                        {
+                          if((type == block_t::NONE || isSimpleBlock(type)) && chunk->setBlock(bp, type))
+                            {
+                              mFluids.set(wp + bp, nullptr);
+                              edges |= Chunk::chunkEdge(bp);
+                            }
+                          else if(isFluidBlock(type) && data)
+                            {
+                              if(mFluids.set(wp + bp, reinterpret_cast<Fluid*>(data)))
+                                {
+                                  edges |= Chunk::chunkEdge(bp);
+                                }
+                            }
+                        }
+                  chunk->updateConnected();
+                  chunk->setNeedSave(true);
+                  // chunk->setPriority(true);
+                  // chunk->setDirty(true);
+                  mChunkMap.updateAdjacent(minP, edges);
+                }
+            }
+      return true;
+    }
+  return false;
+}
+
 block_t World::getBlock(const Point3i &wp)
 {
-  auto cIter = mChunks.find(Hash::hash(chunkPos(wp)));
-  if(cIter != mChunks.end() && cIter->second)
-    { return cIter->second->getType(Chunk::blockPos(wp)); }
+  ChunkPtr chunk = mChunkMap[chunkPos(wp)];
+  if(chunk)
+    { return chunk->getType(Chunk::blockPos(wp)); }
   else
     { return block_t::NONE; }
 }
 
 block_t* World::atBlock(const Point3i &wp)
 {
-  auto cIter = mChunks.find(Hash::hash(chunkPos(wp)));
-  if(cIter != mChunks.end() && cIter->second)
-    { return cIter->second->at(Chunk::blockPos(wp)); }
+  ChunkPtr chunk = mChunkMap[chunkPos(wp)];
+  if(chunk)
+    { return chunk->at(Chunk::blockPos(wp)); }
   else
     { return nullptr; }
 }
 
-void addChunkFace(MeshData &data, Chunk *chunk, const Point3i &cp, bool meshed)
+void World::addChunkFace(MeshData &data, Chunk *chunk, const Point3i &cp, bool meshed)
 {
   Vector3f color = (meshed ? Vector3f{0,0,0} : Vector3f{1,0,0});
   int nVert = data.vertices().size();
-  data.vertices().emplace_back((cp + Point3i{0,0,0})*Chunk::size, color, Point2i{0,0});
-  data.vertices().emplace_back((cp + Point3i{0,1,0})*Chunk::size, color, Point2i{0,0});
-  data.vertices().emplace_back((cp + Point3i{1,1,0})*Chunk::size, color, Point2i{0,0});
-  data.vertices().emplace_back((cp + Point3i{1,0,0})*Chunk::size, color, Point2i{0,0});
+  data.vertices().emplace_back((cp + Point3i{0,0,0})*Chunk::size, color, Point2f{0.3,0});
+  data.vertices().emplace_back((cp + Point3i{0,1,0})*Chunk::size, color, Point2f{0.3,0});
+  data.vertices().emplace_back((cp + Point3i{1,1,0})*Chunk::size, color, Point2f{0.3,0});
+  data.vertices().emplace_back((cp + Point3i{1,0,0})*Chunk::size, color, Point2f{0.3,0});
   
-  data.vertices().emplace_back((cp + Point3i{0,0,1})*Chunk::size, color, Point2i{0,0});
-  data.vertices().emplace_back((cp + Point3i{0,1,1})*Chunk::size, color, Point2i{0,0});
-  data.vertices().emplace_back((cp + Point3i{1,1,1})*Chunk::size, color, Point2i{0,0});
-  data.vertices().emplace_back((cp + Point3i{1,0,1})*Chunk::size, color, Point2i{0,0});
+  data.vertices().emplace_back((cp + Point3i{0,0,1})*Chunk::size, color, Point2f{0.3,0});
+  data.vertices().emplace_back((cp + Point3i{0,1,1})*Chunk::size, color, Point2f{0.3,0});
+  data.vertices().emplace_back((cp + Point3i{1,1,1})*Chunk::size, color, Point2f{0.3,0});
+  data.vertices().emplace_back((cp + Point3i{1,0,1})*Chunk::size, color, Point2f{0.3,0});
 
   data.indices().push_back(nVert + 0);
   data.indices().push_back(nVert + 1);
@@ -934,37 +1066,79 @@ void addChunkFace(MeshData &data, Chunk *chunk, const Point3i &cp, bool meshed)
   data.indices().push_back(nVert + 3);
   data.indices().push_back(nVert + 7);
 
-  // add edge connections
+  // add render path
+  
   nVert = data.vertices().size();
-  for(int i = 0; i < 6; i++)
-    {
-      Vector3f offset = sideDirection((blockSide_t)(1 << i));
-      for(int d = 0; d < 3; d++)
-        {
-          if(offset[d] == 0)
-            { offset[d] = Chunk::size[d]/2; }
-          else if(offset[d] > 0)
-            { offset[d] = Chunk::size[d] - 8; }
-          else
-            { offset[d] = 8; }
-        }
+  int i = 0;
+  //TreeNode tree = mChunkMap.getTree();//mRenderer->getRenderOrder();
+  std::vector<hash_t> tree = mChunkMap.getVisible(mCamera);
 
-      data.vertices().emplace_back(cp*Chunk::size + offset,
-                                   Vector3f{1.0f, 1.0f, 1.0f}, Point2i{0,0} );
+  hash_t lastHash = 0;
+  for(auto hash : tree)
+    {
+      float a = (float)i/(float)tree.size();
+      Vector3f color1{1,0,0};
+      Vector3f color2{1,1,0};
+      Vector3f color3{0,1,0};
+      Vector3f color4{0,1,1};
+      Vector3f lineCol = (a < 0.33 ? lerp(color1, color2, a/0.33) :
+                          (a < 0.66 ? lerp(color2, color3, (a-0.33)/0.33) :
+                           lerp(color3, color4, (a-0.66)/0.33) ));
+      Point2f lineTex{1.0, 0};
+      
+      data.vertices().emplace_back((Hash::unhash(lastHash) - mMinChunk)*Chunk::size + Chunk::size/2,
+                                   lineCol, lineTex);
+      data.vertices().emplace_back((Hash::unhash(hash) - mMinChunk)*Chunk::size + Chunk::size/2,
+                                   lineCol, lineTex);
+      data.indices().emplace_back(nVert + (i++));
+      data.indices().emplace_back(nVert + (i++));
+      lastHash = hash;
     }
-  for(int i = 0; i < 6; i++)
+
+  /*
+    int maxSteps = tree.maxDepth();
+
+  std::queue<TreeNode*> nodeQueue;
+  nodeQueue.push(&tree);
+  
+  while(nodeQueue.size() > 0)
     {
-      for(int j = i+1; j < 6; j++)
-    {
-      if(chunk->edgesConnected((blockSide_t)(1 << i), (blockSide_t)(1 << j)))
+      TreeNode *node = nodeQueue.front();
+      nodeQueue.pop();
+
+      if(!node->parent)
+        { continue; }
+      
+      float a = (float)node->depth/(float)maxSteps;
+      Vector3f color1{1,0,0};
+      Vector3f color2{1,1,0};
+      Vector3f color3{0,1,0};
+      Vector3f color4{0,1,1};
+      Vector3f lineCol = (a < 0.33 ? lerp(color1, color2, a/0.33) :
+                          (a < 0.66 ? lerp(color2, color3, (a-0.33)/0.33) :
+                           lerp(color3, color4, (a-0.66)/0.33) ));
+      Point2f lineTex{1.0, 0};
+      if(!node->visible)
         {
-         data.indices().push_back(nVert + i);
-         data.indices().push_back(nVert + j);
+          lineCol = Vector3f{0.9,0.9,0.9};
+          //lineTex[0] = 0.1;
+        }
+      //      LOGD("HASH 1: 0x%006X | 2: 0x%0006X", line.first, line.second);
+          std::cout << "POINT: " << node->parent->pos << " : " << node->pos << "\n";
+      if(pointInRange(node->parent->pos, mMinChunk, mMaxChunk) &&
+         pointInRange(node->pos, mMinChunk, mMaxChunk) )
+        {
+          data.vertices().emplace_back((node->parent->pos - mMinChunk)*Chunk::size + Chunk::size/2,
+                                       lineCol, lineTex);
+          data.vertices().emplace_back((node->pos - mMinChunk)*Chunk::size + Chunk::size/2,
+                                       lineCol, lineTex);
+          data.indices().emplace_back(nVert + (i++));
+          data.indices().emplace_back(nVert + (i++));
         }
     }
-  }
+  */
+  
 }
-
 MeshData World::makeChunkLineMesh()
 {
   MeshData data;
@@ -980,11 +1154,11 @@ MeshData World::makeChunkLineMesh()
         {
           hash_t cHash = Hash::hash(mMinChunk+cp);
           bool meshed = mRenderer->isMeshed(cHash);
-          
-          std::lock_guard<std::mutex> lock(mChunkLock);
-          auto cIter = mChunks.find(cHash);
-          if(cIter != mChunks.end() && cIter->second)
-            { addChunkFace(data, cIter->second, cp, meshed); }
+
+          ChunkPtr chunk = mChunkMap[mMinChunk+cp];
+          if(chunk)
+            //{ addChunkFace(data, chunk.get(), cp, meshed); }
+            { addChunkFace(data, chunk, cp, meshed); }
         }
   
   return data;
@@ -992,71 +1166,50 @@ MeshData World::makeChunkLineMesh()
 
 void World::chunkLoadCallback(Chunk *chunk)
 {
-  mNumLoading--;
-  std::lock_guard<std::mutex> lock(mLoadLock);
-  mLoadQueue.push_back(chunk);
-
-  /*
-    { // start loading chunks in range
-    const std::vector<Point3i> &distPoints = getCenterDistPoints(mCenter, mLoadRadius);
-    if(mCenterDistIndex < distPoints.size())
-    {
-    for(int i = mCenterDistIndex; i < distPoints.size(); i++, mCenterDistIndex++)
-    {
-    const Point3i cp = mCenter + distPoints[i];
-    const int cHash = Hash::hash(cp);
-    auto iter = mChunks.find(cHash);
-    if(iter == mChunks.end())
-    {
-    Chunk *chunk = nullptr;
-    if(mUnusedChunks.size() > 0)
-    {
-    chunk = mUnusedChunks.front();
-    mUnusedChunks.pop();
-    chunk->setWorldPos(cp);
-    }
-    else
-    { chunk = new Chunk(cp); }
-
-    {
-    std::lock_guard<std::mutex> lock(mChunkLock);
-    mChunks.emplace(cHash, nullptr);
-    }
-    mLoader->load(chunk);
-    if(++mNumLoading >= mLoader->numThreads()*16)
-    { break; }
-    }
-    }
-    }
-    }
-  */
+  mChunkMap.chunkFinishedLoading(chunk);
 }
 
 
 void World::setCenter(const Point3i &chunkCenter)
 {
-  {
-    std::lock_guard<std::mutex> lock(mChunkLock);
-    LOGI("Moving center from (%d, %d, %d) to (%d, %d, %d)", mCenter[0], mCenter[1], mCenter[2],
-         chunkCenter[0], chunkCenter[1], chunkCenter[2] );
-    mCenter = chunkCenter;
-    mMinChunk = mCenter - mLoadRadius;
-    mMaxChunk = mCenter + mLoadRadius;
-    mFluids.setRange(mMinChunk, mMaxChunk);
-    mCenterDistIndex = 0;
-  }
-  mRenderer->setCenter(mCenter);
-  mRayTracer->setCenter(mCenter);
-}
+  //std::lock_guard<std::mutex> lock(mChunkLock);
+  LOGI("Moving center from (%d, %d, %d) to (%d, %d, %d)", mCenter[0], mCenter[1], mCenter[2],
+       chunkCenter[0], chunkCenter[1], chunkCenter[2] );
+  mCenter = chunkCenter;
+  mMinChunk = mCenter - mLoadRadius;
+  mMaxChunk = mCenter + mLoadRadius;
+  mFluids.setRange(mMinChunk, mMaxChunk);
   
+  auto unload = mChunkMap.unloadOutside(mMinChunk-1, mMaxChunk+1);
+  for(auto hash : unload)
+    {
+      mRenderer->unload(hash);
+      //mRayTracer->unload(hash);
+      mVisualizer->unload(hash);
+    }
+
+  mRenderer->setCenter(mCenter);
+  //mRayTracer->setCenter(mCenter);
+  mVisualizer->setCenter(mCenter);
+}
+
 void World::setRadius(const Vector3i &chunkRadius)
 {
-  std::lock_guard<std::mutex> lock(mChunkLock);
+  //std::lock_guard<std::mutex> lock(mChunkLock);
   LOGI("Setting chunk radius to (%d, %d, %d)", chunkRadius[0], chunkRadius[1], chunkRadius[2]);
   mLoadRadius = chunkRadius;
   mChunkDim = mLoadRadius * 2 + 1;
   mMinChunk = mCenter - mLoadRadius;
   mMaxChunk = mCenter + mLoadRadius;
+  
+  mFluids.setRange(mMinChunk, mMaxChunk);
+  auto unload = mChunkMap.unloadOutside(mMinChunk, mMaxChunk);
+  for(auto hash : unload)
+    {
+      mRenderer->unload(hash);
+      //mRayTracer->unload(hash);
+      mVisualizer->unload(hash);
+    }
 
   Vector3f bSize = mLoadRadius*Chunk::size;
   if(bSize[0] == 0) bSize[0] += Chunk::sizeX/2;
@@ -1065,35 +1218,44 @@ void World::setRadius(const Vector3i &chunkRadius)
   float minDim = std::min(bSize[0], std::min(bSize[1], bSize[2]));
   mDirScale = Vector3f{minDim/bSize[0],minDim/bSize[1],minDim/bSize[2]};
   mDirScale *= mDirScale;
-  mFogStart = (minDim)*0.98f;
-  mFogEnd = (minDim)*1.0f;
+  mFogStart = (minDim)*FOG_START;
+  mFogEnd = (minDim)*FOG_END;
   mRadChanged = true;
   mRenderer->setFog(mFogStart, mFogEnd, mDirScale);
-  mRayTracer->setFog(mFogStart, mFogEnd, mDirScale);
+  //mRayTracer->setFog(mFogStart, mFogEnd, mDirScale);
+
+  mChunkMap.setRadius(mLoadRadius);
+  mRenderer->setRadius(mLoadRadius);
+  mVisualizer->setRadius(mLoadRadius);
   
-  mCenterDistIndex = 0;
+  //mCenterDistIndex = 0;
 }
 Point3i World::getCenter() const
 { return mCenter; }
 
-void World::setFrustum(Frustum *frustum)
+void World::setCamera(Camera *camera)
 {
-  mRenderer->setFrustum(frustum);
-  mRayTracer->setFrustum(frustum);
+  mRenderer->setCamera(camera);
+  //mRayTracer->setCamera(camera);
+  mChunkMap.setCamera(camera);
+  mCamera = camera;
 }
 void World::setFrustumCulling(bool on)
 {
   mRenderer->setFrustumCulling(on);
-  mRayTracer->setFrustumCulling(on);
+  //mRayTracer->setFrustumCulling(on);
 }
 void World::pauseFrustumCulling()
 {
+  mFrustumPaused = !mFrustumPaused;
   mRenderer->pauseFrustumCulling();
-  mRayTracer->pauseFrustum();
+  //mRayTracer->pauseFrustum();
 }
 
 void World::setScreenSize(const Point2i &size)
-{ mRayTracer->setScreenSize(size); }
+{
+  //mRayTracer->setScreenSize(size);
+}
 
 int World::chunkX(int wx)
 { return wx >> Chunk::shiftX; }

@@ -1,6 +1,13 @@
 #ifndef BLOCK_SIDES_HPP
 #define BLOCK_SIDES_HPP
 
+#include <cstdint>
+#include <vector>
+#include <unordered_map>
+
+#include "helpers.hpp"
+#include "vector.hpp"
+
 enum class normal_t : uint8_t
   {
    PX = 0, PY, PZ,
@@ -49,9 +56,22 @@ static std::vector<blockSide_t> gBlockSides =
     blockSide_t::PY | blockSide_t::PZ,
     blockSide_t::PX | blockSide_t::PY | blockSide_t::PZ };
 
+static std::unordered_map<blockSide_t, int> gBlockSideIndices =
+  { {blockSide_t::NONE, -1},
+    {gBlockSides[0], 0 },{gBlockSides[1], 1 },{gBlockSides[2], 2 },
+    {gBlockSides[3], 3 },{gBlockSides[4], 4 },{gBlockSides[5], 5 },
+    {gBlockSides[6], 6 },{gBlockSides[7], 7 },{gBlockSides[8], 8 },
+    {gBlockSides[9], 9 },{gBlockSides[10],10},{gBlockSides[11],11},
+    {gBlockSides[12],12},{gBlockSides[13],13},{gBlockSides[14],14},
+    {gBlockSides[15],15},{gBlockSides[16],16},{gBlockSides[17],17},
+    {gBlockSides[18],18},{gBlockSides[19],19},{gBlockSides[20],20},
+    {gBlockSides[21],21},{gBlockSides[22],22},{gBlockSides[23],23},
+    {gBlockSides[24],24},{gBlockSides[25],25} };
+
 // directions from center
 static std::unordered_map<blockSide_t, Point3i> gSideDirections =
-  { {gBlockSides[0],  Point3i({-1,-1,-1})},
+  { {blockSide_t::NONE, Point3i({0, 0, 0})},
+    {gBlockSides[0],  Point3i({-1,-1,-1})},
     {gBlockSides[1],  Point3i({ 0,-1,-1})},
     {gBlockSides[2],  Point3i({ 1,-1,-1})},
     {gBlockSides[3],  Point3i({-1, 0,-1})},
@@ -78,29 +98,28 @@ static std::unordered_map<blockSide_t, Point3i> gSideDirections =
     {gBlockSides[22], Point3i({ 1, 0, 1})},
     {gBlockSides[23], Point3i({-1, 1, 1})},
     {gBlockSides[24], Point3i({ 0, 1, 1})},
-    {gBlockSides[25], Point3i({ 1, 1, 1})},
-    {blockSide_t::NONE, Point3i({0, 0, 0})}};
+    {gBlockSides[25], Point3i({ 1, 1, 1})} };
 
 // opposite sides
 static std::unordered_map<blockSide_t, blockSide_t> gOppositeSides =
-    { {gBlockSides[0],  gBlockSides[25]}, {gBlockSides[1],  gBlockSides[24]},
-      {gBlockSides[2],  gBlockSides[23]}, {gBlockSides[3],  gBlockSides[22]},
-      {gBlockSides[4],  gBlockSides[21]}, {gBlockSides[5],  gBlockSides[20]},
-      {gBlockSides[6],  gBlockSides[19]}, {gBlockSides[7],  gBlockSides[18]},
-      {gBlockSides[8],  gBlockSides[17]}, {gBlockSides[9],  gBlockSides[16]},
-      {gBlockSides[10], gBlockSides[15]}, {gBlockSides[11], gBlockSides[14]},
-      {gBlockSides[12], gBlockSides[13]}, {gBlockSides[13], gBlockSides[12]},
-      {gBlockSides[14], gBlockSides[11]}, {gBlockSides[15], gBlockSides[10]},
-      {gBlockSides[16], gBlockSides[ 9]}, {gBlockSides[17], gBlockSides[ 8]},
-      {gBlockSides[18], gBlockSides[ 7]}, {gBlockSides[19], gBlockSides[ 6]},
-      {gBlockSides[20], gBlockSides[ 5]}, {gBlockSides[21], gBlockSides[ 4]},
-      {gBlockSides[22], gBlockSides[ 3]}, {gBlockSides[23], gBlockSides[ 2]},
-      {gBlockSides[24], gBlockSides[ 1]}, {gBlockSides[25], gBlockSides[ 0]} };
+  { {blockSide_t::NONE, blockSide_t::NONE},
+    {gBlockSides[0],  gBlockSides[25]}, {gBlockSides[1],  gBlockSides[24]},
+    {gBlockSides[2],  gBlockSides[23]}, {gBlockSides[3],  gBlockSides[22]},
+    {gBlockSides[4],  gBlockSides[21]}, {gBlockSides[5],  gBlockSides[20]},
+    {gBlockSides[6],  gBlockSides[19]}, {gBlockSides[7],  gBlockSides[18]},
+    {gBlockSides[8],  gBlockSides[17]}, {gBlockSides[9],  gBlockSides[16]},
+    {gBlockSides[10], gBlockSides[15]}, {gBlockSides[11], gBlockSides[14]},
+    {gBlockSides[12], gBlockSides[13]}, {gBlockSides[13], gBlockSides[12]},
+    {gBlockSides[14], gBlockSides[11]}, {gBlockSides[15], gBlockSides[10]},
+    {gBlockSides[16], gBlockSides[ 9]}, {gBlockSides[17], gBlockSides[ 8]},
+    {gBlockSides[18], gBlockSides[ 7]}, {gBlockSides[19], gBlockSides[ 6]},
+    {gBlockSides[20], gBlockSides[ 5]}, {gBlockSides[21], gBlockSides[ 4]},
+    {gBlockSides[22], gBlockSides[ 3]}, {gBlockSides[23], gBlockSides[ 2]},
+    {gBlockSides[24], gBlockSides[ 1]}, {gBlockSides[25], gBlockSides[ 0]} };
 
 inline blockSide_t oppositeSide(blockSide_t side)
 {
-  return (side == blockSide_t::NONE ? blockSide_t::NONE :
-          gOppositeSides.find(side)->second );
+  return gOppositeSides.find(side)->second;
 }
 inline blockSide_t getSide(const Point3i &dir)
 {
@@ -114,6 +133,15 @@ inline blockSide_t getSide(int sx, int sy, int sz)
           (sy < 0 ? blockSide_t::NY : (sy > 0 ? blockSide_t::PY : blockSide_t::NONE)) |
           (sz < 0 ? blockSide_t::NZ : (sz > 0 ? blockSide_t::PZ : blockSide_t::NONE)) );
 }
+inline int sideIndex(blockSide_t side)
+{ return gBlockSideIndices[side]; }
+
+typedef uint32_t sideFlag_t;
+static const uint32_t gAllSideFlags = (1 << gBlockSides.size()) - 1;
+inline sideFlag_t sideFlag(blockSide_t side)
+{ return (1 << gBlockSideIndices[side]); }
+inline bool allSides(sideFlag_t flags)
+{ return flags == gAllSideFlags; }
 
 inline Point3i sideDirection(blockSide_t side)
 {

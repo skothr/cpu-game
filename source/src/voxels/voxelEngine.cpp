@@ -8,14 +8,9 @@ VoxelEngine::VoxelEngine(QObject *qParent)
   : mMainThread(1, std::bind(&VoxelEngine::mainLoop, this), MAIN_THREAD_SLEEP_MS*1000),
     mBlockThread("Block Update", std::bind(&VoxelEngine::stepBlocks, this, std::placeholders::_1), false),
     mPhysicsThread("Physics", std::bind(&VoxelEngine::stepPhysics, this, std::placeholders::_1), false),
-    mWorld(new World())
+    mWorld(new World()), mPlayer(new Player(Point3f{0,0,0}, PLAYER_EYE, PLAYER_UP, mWorld))
 {
-#if GOD_PLAYER
-  mPlayer = new GodPlayer(Point3f{0,0,0}, PLAYER_EYE, PLAYER_UP, mWorld);
-#else
-  mPlayer = new FpsPlayer(Point3f{0,0,0}, PLAYER_EYE, PLAYER_UP, mWorld);
-#endif
-  mWorld->setFrustum(mPlayer->getFrustum());
+  mWorld->setCamera(mPlayer->getCamera());
 }
 
 VoxelEngine::~VoxelEngine()
@@ -182,6 +177,8 @@ double VoxelEngine::getFramerate() const
   return mFramerate;
 }
 
+
+#define LIMIT_FPS false
 double VoxelEngine::printFps()
 {
   if(mInitialized)
@@ -192,15 +189,16 @@ double VoxelEngine::printFps()
       auto time = std::chrono::steady_clock::now();
 
       double result = 0.0;
-      double dt = (std::chrono::duration_cast<std::chrono::nanoseconds>(time - lastTime).count() /
-                   1000000000.0 );
+
+      double micro = std::chrono::duration_cast<std::chrono::nanoseconds>(time - lastTime).count() / 1000.0;
+      double dt = micro / 1000000.0;
       printCounter += dt;
       numIterations++;
 
       static float t = 0.0;
       t += 0.1;
 
-      if(printCounter > 0.5)
+      if(printCounter > 0.1)
         {
           mFramerate = (double)numIterations / printCounter;
           printCounter = 0.0;
@@ -225,10 +223,11 @@ void VoxelEngine::render()
           else
             { glPolygonMode(GL_FRONT_AND_BACK, GL_FILL); }
         }
-      Matrix4 m = mPlayer->getProjection() * mPlayer->getView();
-      mWorld->setCamPos(mPlayer->getPos());
+      Matrix4 m = mPlayer->getCamera()->getProjection() * mPlayer->getCamera()->getView();
+      mWorld->setCamPos(mPlayer->getCamera()->getPos());
       mWorld->render(m);
       mPlayer->render(m);
+      glFinish();
       printFps();
     }
 }
@@ -257,74 +256,68 @@ VoxelEngine::ProjDesc VoxelEngine::getProjection() const
 
 void VoxelEngine::setProjection(const ProjDesc &desc)
 {
-  mPlayer->setProjection(desc.fov, desc.aspect, desc.znear, desc.zfar);
+  mPlayer->getCamera()->setProjection(desc.fov, desc.aspect, desc.znear, desc.zfar);
 }
 
 void VoxelEngine::setLightLevel(int lightLevel)
 { mWorld->setLightLevel(lightLevel); }
 
-#if GOD_PLAYER
-void VoxelEngine::setTool(block_t type, BlockData *data)
+void VoxelEngine::setMaterial(block_t type, BlockData *data)
 {
   LOGD("PLAYER SETTING TOOL: %s", toString(type).c_str());
   mPlayer->setPlaceBlock(type, data);
+}
+void VoxelEngine::setTool(tool_t tool)
+{
+  mPlayer->setTool(tool);
+}
+void VoxelEngine::setToolRad(int rad)
+{
+  mPlayer->setToolRad(rad);
 }
 void VoxelEngine::nextTool()
 { mPlayer->nextPlaceBlock(); }
 void VoxelEngine::prevTool()
 { mPlayer->prevPlaceBlock(); }
-#endif // PLAYER_GOD
 
 void VoxelEngine::sendInput(const InputData &data)
 {
-  static float sneakMult = 1.0f;
   if(mInitialized)
     {
       switch(data.type)
         {
           // movement
         case input_t::MOVE_RIGHT:
-          mPlayer->addXForce((data.movement.keyDown && !mPaused) ? PLAYER_SPEED*sneakMult : 0.0);
+          mPlayer->moveX((data.movement.keyDown && !mPaused) ? 1.0f : 0.0f);
           break;
         case input_t::MOVE_LEFT:
-          mPlayer->addXForce((data.movement.keyDown && !mPaused) ? -PLAYER_SPEED*sneakMult : 0.0);
+          mPlayer->moveX((data.movement.keyDown && !mPaused) ? -1.0f : 0.0f);
           break;
         case input_t::MOVE_FORWARD:
-          mPlayer->addYForce((data.movement.keyDown && !mPaused) ? PLAYER_SPEED*sneakMult : 0.0);
+          mPlayer->moveY((data.movement.keyDown && !mPaused) ? 1.0f : 0.0f);
           break;
         case input_t::MOVE_BACK:
-          mPlayer->addYForce((data.movement.keyDown && !mPaused) ? -PLAYER_SPEED*sneakMult : 0.0);
+          mPlayer->moveY((data.movement.keyDown && !mPaused) ? -1.0f : 0.0f);
           break;
         case input_t::MOVE_UP:
-          mPlayer->addZForce((data.movement.keyDown && !mPaused) ? PLAYER_SPEED*sneakMult : 0.0);
+          mPlayer->moveZ((data.movement.keyDown && !mPaused) ? 1.0f : 0.0f);
           break;
         case input_t::MOVE_DOWN:
-          mPlayer->addZForce((data.movement.keyDown && !mPaused) ? -PLAYER_SPEED*sneakMult : 0.0);
+          mPlayer->moveZ((data.movement.keyDown && !mPaused) ? -1.0f : 0.0f);
           break;
 
-#if GOD_PLAYER
         case input_t::ACTION_JUMP:
           if(!mPaused)
-            { mPlayer->addZForce((data.movement.keyDown && !mPaused) ? PLAYER_SPEED : 0.0); }
+            { mPlayer->jump(data.action.keyDown); }
           break;
         case input_t::ACTION_SNEAK:
-          if(data.action.keyDown)
-            { sneakMult = 0.005f; }
-          else
-            { sneakMult = 1.0f; }
-          break;
-#else
-        case input_t::ACTION_JUMP: // (only for fps player)
           if(!mPaused)
-            { mPlayer->jump(data.movement.magnitude); }
+            { mPlayer->sneak(data.action.keyDown); }
           break;
-        case input_t::ACTION_SNEAK:
-          if(data.action.keyDown)
-            { sneakMult = 0.2f; }
-          else
-            { sneakMult = 1.0f; }
+        case input_t::ACTION_RUN:
+          if(!mPaused)
+            { mPlayer->run(data.action.keyDown); }
           break;
-#endif // GOD_PLAYER
 
         case input_t::MOUSE_MOVE:
           if(!mPaused)
@@ -332,14 +325,14 @@ void VoxelEngine::sendInput(const InputData &data)
               if(data.mouseMove.captured)
                 {
                   mPlayer->setSelectMode(false);
-                  mPlayer->rotate(data.mouseMove.dPos[1]*0.08f,
-                                  -data.mouseMove.dPos[0]*0.06f*mProjDesc.aspect );
+                  mPlayer->getCamera()->rotate(data.mouseMove.dPos[1]*0.08f,
+                                               -data.mouseMove.dPos[0]*0.06f*mProjDesc.aspect );
                 }
               else
                 {
                   mPlayer->setSelectMode(true);
                   mPlayer->select(data.mouseMove.vPos * 2.0f - 1.0f,
-                                  mPlayer->getFrustum()->getProjection() );
+                                  mPlayer->getCamera()->getProjection() );
                 }
             }
           break;
@@ -358,6 +351,7 @@ void VoxelEngine::sendInput(const InputData &data)
                   break;
                 }
             }
+          
         }
     }
 }

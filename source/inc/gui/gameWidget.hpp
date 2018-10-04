@@ -28,7 +28,7 @@ public:
   VoxelEngine* getEngine();
   void captureMouse(bool capture);
   bool getMouseCaptured() const;
-  void setTool(block_t type);
+  void setMaterial(block_t type);
   
   void start();
   void stop();
@@ -72,7 +72,6 @@ private:
   
   QStackedLayout *mOverlayLayout = nullptr;
   Overlay *mPlayerOverlay = nullptr;
-  Overlay *mChunkOverlay = nullptr;
   PauseWidget *mPause = nullptr;
   ControlInterface *mControl = nullptr;
   QGridLayout *mMainLayout = nullptr;

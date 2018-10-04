@@ -11,7 +11,7 @@ Overlay::Overlay(QWidget *parent, const std::vector<LabelDesc> &labels)
   mLayout = new QVBoxLayout(this);
   //
 
-  QFont f("Arial", 24, QFont::Bold);
+  QFont f("Arial", 12, QFont::Bold);
   
   for(auto &l : labels)
     {

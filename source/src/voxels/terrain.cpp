@@ -119,6 +119,15 @@ void TerrainGenerator::generate(const Point3i &chunkPos, terrain_t genType,
               std::memcpy((void*)&dataOut[bi*Block::dataSize], (void*)&b, Block::dataSize);
             }
       break;
+    case terrain_t::TEST:
+      b = ((((chunkPos[0]) % 4) == 0 || chunkPos[1] % 4 == 0) && std::abs(chunkPos[0]) % 4 != 2 ? block_t::NONE : block_t::STONE);
+      for(y = 0; y < Chunk::sizeY; y++)
+        for(z = 0; z < Chunk::sizeZ; z++)
+          for(x = 0; x < Chunk::sizeX; x++, bi++)
+            {
+              std::memcpy((void*)&dataOut[bi*Block::dataSize], (void*)&b, Block::dataSize);
+            }
+      break;
     }
   mNoise.SetFrequency(1.0);
 }

@@ -44,26 +44,25 @@ GameWidget::GameWidget(QWidget *parent)
   mInfoTimer->setInterval(INFO_THREAD_SLEEP_MS);
 
   // set opengl format
-  QSurfaceFormat format;
-  format.setDepthBufferSize(24);
-  format.setStencilBufferSize(8);
-  format.setVersion(4, 6);
-  format.setSamples(1);
-  format.setRenderableType(QSurfaceFormat::OpenGL);
-  setFormat(format);
+  QSurfaceFormat f = format();
+  f.setSwapInterval(1);
+  f.setSwapBehavior(QSurfaceFormat::DoubleBuffer);
+  f.setDepthBufferSize(24);
+  //f.setStencilBufferSize(8);
+  f.setVersion(4, 6);
+  //f.setSampleBuffers(true);
+  //f.setSamples(1);
+  f.setRenderableType(QSurfaceFormat::OpenGL);
+  f.setProfile(QSurfaceFormat::CoreProfile);
+  setFormat(f);
 
   // HUD overlay
-  mPlayerOverlay = new Overlay(this, {LabelDesc("POSITION", (align_t)(align_t::TOP)),
-                                      LabelDesc("CHUNK", (align_t)(align_t::TOP)),
-                                      LabelDesc("BLOCK", (align_t)(align_t::TOP)),
-                                      LabelDesc("LIGHT", (align_t)(align_t::TOP))});
+  mPlayerOverlay = new Overlay(this, {LabelDesc("FRAMERATE", (align_t)(align_t::TOP | align_t::RIGHT)),
+                                      LabelDesc("POSITION", (align_t)(align_t::TOP | align_t::RIGHT)),
+                                      LabelDesc("CHUNK", (align_t)(align_t::TOP | align_t::RIGHT)),
+                                      LabelDesc("BLOCK", (align_t)(align_t::TOP | align_t::RIGHT)),
+                                      LabelDesc("LIGHT", (align_t)(align_t::TOP | align_t::RIGHT))});
   mPlayerOverlay->raise();
-  mChunkOverlay = new Overlay(this,
-                              { LabelDesc("FRAMERATE", (align_t)(align_t::TOP | align_t::RIGHT)),
-                                LabelDesc("CHUNKS LOADED", (align_t)(align_t::TOP | align_t::RIGHT)),
-                                LabelDesc("CHUNKS MESHED", (align_t)(align_t::TOP | align_t::RIGHT)),
-                                LabelDesc("BLOCKS", (align_t)(align_t::TOP | align_t::RIGHT)) });
-  mChunkOverlay->raise();
 
   mPause = new PauseWidget(this);
   mPause->hide();
@@ -72,7 +71,6 @@ GameWidget::GameWidget(QWidget *parent)
   mOverlayLayout = new QStackedLayout();
   mOverlayLayout->setStackingMode(QStackedLayout::StackAll);
   mOverlayLayout->addWidget(mPlayerOverlay);
-  mOverlayLayout->addWidget(mChunkOverlay);
   mOverlayLayout->addWidget(mPause);
   
   // control layouts
@@ -82,7 +80,7 @@ GameWidget::GameWidget(QWidget *parent)
   mMainLayout->setSpacing(0);
   mMainLayout->setMargin(0);
   mMainLayout->addLayout(mOverlayLayout, 0, 0, 4, 4);
-  mMainLayout->addWidget(mControl, 2, 0, 2, 4, Qt::AlignBottom);
+  mMainLayout->addWidget(mControl, 0, 0, 4, 2, Qt::AlignLeft);
 
   connect(mRenderTimer, SIGNAL(timeout()), this, SLOT(update())); 
   connect(mInfoTimer, SIGNAL(timeout()), SLOT(updateInfo())); 
@@ -118,8 +116,9 @@ void GameWidget::initializeGL()
   glDepthMask(GL_TRUE);
   glEnable(GL_BLEND);
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-  glEnable(GL_LINE_SMOOTH);
-  glHint(GL_LINE_SMOOTH_HINT, GL_NICEST);
+  //glEnable(GL_LINE_SMOOTH);
+  //glHint(GL_LINE_SMOOTH_HINT, GL_NICEST);
+  //glEnable(GL_MULTISAMPLE);
   
   // init game objects
   mEngine->initGL(this);
@@ -127,7 +126,7 @@ void GameWidget::initializeGL()
 
 void GameWidget::paintGL()
 {
-  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);// | GL_STENCIL_BUFFER_BIT);
   render();
 }
 
@@ -186,61 +185,43 @@ void GameWidget::endGame()
 void GameWidget::updateInfo()
 {
   // update player info
+  double fps = mEngine->getFramerate();
   Point3f ppos = mEngine->getPlayer()->getPos();
   Point3i coll = mEngine->getPlayer()->getCollisions();
   Point3i cpos = World::chunkPos(ppos);
-  QLabel *pl = mPlayerOverlay->getLabel(0);
-  QLabel *cl = mPlayerOverlay->getLabel(1);
-  
-  std::stringstream ss;
-  ss << "Position: " << ppos << "  (" << coll << ")";
-  pl->setText(ss.str().c_str());
-  ss.str(""); ss.clear();
-  ss << "Chunk:    " << cpos;
-  cl->setText(ss.str().c_str());
-  ss.str(""); ss.clear();
-  
-  QLabel *tl = mPlayerOverlay->getLabel(2);
-  QLabel *ll = mPlayerOverlay->getLabel(3);
   CompleteBlock b = mEngine->getPlayer()->selectedBlock();
   float lightLevel = 0.0f;
   if(isFluidBlock(b.type))
     { lightLevel = reinterpret_cast<Fluid*>(b.data)->level; }
+  
+  QLabel *fpsl = mPlayerOverlay->getLabel(0);
+  QLabel *pl = mPlayerOverlay->getLabel(1);
+  QLabel *cl = mPlayerOverlay->getLabel(2);
+  QLabel *tl = mPlayerOverlay->getLabel(3);
+  QLabel *ll = mPlayerOverlay->getLabel(4);
+
+  std::stringstream ss;  
+  ss << fps << " FPS";
+  fpsl->setText(ss.str().c_str());
+  ss.str(""); ss.clear();
+  
+  ss << "Position: " << ppos;
+  pl->setText(ss.str().c_str());
+  ss.str(""); ss.clear();
+  
+  ss << "Chunk:    " << cpos;
+  cl->setText(ss.str().c_str());
+  ss.str(""); ss.clear();
+  
   ss << "Level:    " << lightLevel;
   ll->setText(ss.str().c_str());
   tl->setText(("Type:     " + toString(b.type)).c_str());
   ss.str(""); ss.clear();
-  
-  // update chunk info
-  int totalChunks = mEngine->getWorld()->totalChunks();
-  int centerChunks = mEngine->getWorld()->centerChunks();
-  int chunksLoaded = mEngine->getWorld()->numLoaded();
-  int chunksMeshed = mEngine->getWorld()->numMeshed();
-  double fps = mEngine->getFramerate();
-
-  Point3i rad = mEngine->getWorld()->getRadius() * 2 + 1;
-  rad *= Chunk::size;
-  
-  QLabel *fpsl = mChunkOverlay->getLabel(0);
-  QLabel *cll = mChunkOverlay->getLabel(1);
-  QLabel *cml = mChunkOverlay->getLabel(2);
-  QLabel *bl = mChunkOverlay->getLabel(3);
-  ss << fps << " FPS";
-  fpsl->setText(ss.str().c_str());
-  ss.str(""); ss.clear();
-  ss << "Loaded:  " << chunksLoaded << " / " << totalChunks;
-  cll->setText(ss.str().c_str());
-  ss.str(""); ss.clear();
-  ss << "Meshed:  " << chunksMeshed << " / " << centerChunks;
-  cml->setText(ss.str().c_str());
-  ss.str(""); ss.clear();
-  ss << "Blocks:  " << (rad[0]*rad[1]*rad[2]);
-  bl->setText(ss.str().c_str());
 }
 
-void GameWidget::setTool(block_t type)
+void GameWidget::setMaterial(block_t type)
 {
-  mEngine->setTool(type, nullptr);
+  mEngine->setMaterial(type, nullptr);
 }
 
 void GameWidget::captureMouse(bool capture)
@@ -285,18 +266,20 @@ void GameWidget::mouseMoveEvent(QMouseEvent *event)
   if(mMousePos.x() > -500)
     {
       QPoint dPos = event->pos() - mMousePos;
-      
-      InputData data;      
-      data.type = input_t::MOUSE_MOVE;
-      data.mouseMove.vPos = Vector2f{(float)event->pos().x() / width(),
-                                     (float)event->pos().y() / height() };
-      data.mouseMove.dPos = Vector2i{dPos.x(), dPos.y()};
-      data.mouseMove.drag = mMouseDown;
-      data.mouseMove.captured = mMouseCaptured;
-      mEngine->sendInput(data);
+      if(dPos.x() != 0 || dPos.y() != 0)
+        {      
+          InputData data;      
+          data.type = input_t::MOUSE_MOVE;
+          data.mouseMove.vPos = Vector2f{(float)event->pos().x() / width(),
+                                         (float)event->pos().y() / height() };
+          data.mouseMove.dPos = Vector2i{dPos.x(), dPos.y()};
+          data.mouseMove.drag = mMouseDown;
+          data.mouseMove.captured = mMouseCaptured || (event->modifiers() & Qt::ControlModifier);
+          mEngine->sendInput(data);
+        }
     }
-
-  if(mMouseCaptured)
+  
+  if(mMouseCaptured || (event->modifiers() & Qt::ControlModifier))
     {
       QPoint glob = mapToGlobal(QPoint(width()/2, height()/2));
       QCursor::setPos(glob);
@@ -367,17 +350,38 @@ void GameWidget::keyPressEvent(QKeyEvent *event)
 
     case Qt::Key_Space:
       data.type = input_t::ACTION_JUMP;
-      data.action.magnitude = 0.18;
       data.action.keyDown = true;
       break;
     case Qt::Key_Control:
       data.type = input_t::ACTION_SNEAK;
-      data.action.magnitude = 0.2;
+      data.action.keyDown = true;
+      break;
+    case Qt::Key_Shift:
+      data.type = input_t::ACTION_RUN;
       data.action.keyDown = true;
       break;
 
     case Qt::Key_P:
       mEngine->getWorld()->pauseFrustumCulling();
+      break;
+    case Qt::Key_G:
+      mEngine->getPlayer()->toggleGodMode();
+      break;
+
+      #define ROTATE_SPEED 0.05
+      
+      // rotate chunk visualizer
+    case Qt::Key_Left:
+      mEngine->getWorld()->rotateVisualizer(Vector3f{-ROTATE_SPEED,0,0});
+      break;
+    case Qt::Key_Right:
+      mEngine->getWorld()->rotateVisualizer(Vector3f{ROTATE_SPEED,0,0});
+      break;
+    case Qt::Key_Down:
+      mEngine->getWorld()->rotateVisualizer(Vector3f{0,ROTATE_SPEED,0});
+      break;
+    case Qt::Key_Up:
+      mEngine->getWorld()->rotateVisualizer(Vector3f{0,-ROTATE_SPEED,0});
       break;
       
     default:
@@ -426,10 +430,31 @@ void GameWidget::keyReleaseEvent(QKeyEvent *event)
       data.movement.keyDown = false;
       break;
       
+    case Qt::Key_Space:
+      data.type = input_t::ACTION_JUMP;
+      data.action.keyDown = false;
+      break;
     case Qt::Key_Control:
       data.type = input_t::ACTION_SNEAK;
-      data.action.magnitude = 1.0;
       data.action.keyDown = false;
+      break;
+    case Qt::Key_Shift:
+      data.type = input_t::ACTION_RUN;
+      data.action.keyDown = false;
+      break;
+
+      // stop rotating chunk visualizer
+    case Qt::Key_Left:
+      mEngine->getWorld()->rotateVisualizer(Vector3f{ROTATE_SPEED,0,0});
+      break;
+    case Qt::Key_Right:
+      mEngine->getWorld()->rotateVisualizer(Vector3f{-ROTATE_SPEED,0,0});
+      break;
+    case Qt::Key_Down:
+      mEngine->getWorld()->rotateVisualizer(Vector3f{0,-ROTATE_SPEED,0});
+      break;
+    case Qt::Key_Up:
+      mEngine->getWorld()->rotateVisualizer(Vector3f{0,ROTATE_SPEED,0});
       break;
       
     default:

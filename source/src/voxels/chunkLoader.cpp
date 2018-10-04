@@ -45,12 +45,15 @@ ChunkLoader::~ChunkLoader()
   mRegionLookup.clear();
 }
 
+void ChunkLoader::start()
+{
+  mLoadPool.start();
+}
 void ChunkLoader::stop()
 {
+  flush();
   mLoadPool.stop();
 }
-void ChunkLoader::start()
-{ mLoadPool.start(); }
 void ChunkLoader::flush()
 {
   while(true)

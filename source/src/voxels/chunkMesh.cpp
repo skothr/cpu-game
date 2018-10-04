@@ -22,7 +22,7 @@ ChunkMesh::~ChunkMesh()
 bool ChunkMesh::initialized() const
 { return mLoaded; }
 
-// make sure to call this from the OpenGL thread!
+// make sure to call this from the OpenGL thread
 bool ChunkMesh::initGL(Shader *shader)
 {
   if(!mLoaded)
@@ -70,7 +70,7 @@ void ChunkMesh::render()
 
 void ChunkMesh::detachData()
 {
-  //activeBuffer()->detachData();
+  activeBuffer()->detachData();
   //inactiveBuffer()->detachData();
 }
 

@@ -4,7 +4,7 @@
 #include "fluid.hpp"
 
 #include "displaySlider.hpp"
-#include "chunkLoadWidget.hpp"
+#include "chunkDisplay.hpp"
 
 #include <iostream>
 
@@ -26,9 +26,12 @@ ControlInterface::ControlInterface(VoxelEngine *engine, QWidget *parent)
 {
   mMainLayout = new QGridLayout(this);
   mMaterialGroup = new QButtonGroup(this);
-  connect(mMaterialGroup, SIGNAL(buttonToggled(int, bool)), this, SLOT(setTool(int, bool)));
+  mToolGroup = new QButtonGroup(this);
+  connect(mMaterialGroup, SIGNAL(buttonToggled(int, bool)), this, SLOT(setMaterial(int, bool)));
+  connect(mToolGroup, SIGNAL(buttonToggled(int, bool)), this, SLOT(setTool(int, bool)));
 
   mControlTabs = new QTabBar();
+  mControlTabs->setShape(QTabBar::RoundedWest);
   mTabStackWidget = new QWidget();
   mTabStack = new QStackedLayout(mTabStackWidget);
   
@@ -83,10 +86,12 @@ ControlInterface::ControlInterface(VoxelEngine *engine, QWidget *parent)
   mControlTabs->insertTab(5, QString("Debug"));
   mControlTabs->setExpanding(false);
 
+  connect(mControlTabs, SIGNAL(tabBarClicked(int)), this, SLOT(tabClicked(int)));
+
   mMainLayout->setSpacing(0);
   mMainLayout->setMargin(0);
-  mMainLayout->addWidget(mControlTabs, 0, 0, 1, 1, Qt::AlignBottom);
-  mMainLayout->addWidget(mTabStackWidget, 1, 0, 1, 1, Qt::AlignBottom);
+  mMainLayout->addWidget(mControlTabs, 0, 1, 1, 1, Qt::AlignLeft|Qt::AlignTop);
+  mMainLayout->addWidget(mTabStackWidget, 0, 0, 1, 1, Qt::AlignLeft);
   setLayout(mMainLayout);
   
   connect(mControlTabs, SIGNAL(currentChanged(int)), mTabStack, SLOT(setCurrentIndex(int)));
@@ -102,19 +107,27 @@ void ControlInterface::expand()
   mTabStackWidget->show();
 }
 
-void ControlInterface::setTool(int id, bool checked)
+void ControlInterface::tabClicked(int index)
+{
+  if(mTabStackWidget->isHidden())
+    { expand(); }
+  else if(index == mControlTabs->currentIndex())
+    { collapse(); }
+}
+
+void ControlInterface::setMaterial(int id, bool checked)
 {
   if(checked)
     {
-      mTool = (block_t)id;
-      if(isSimpleBlock(mTool))
+      mMaterial = (block_t)id;
+      if(isSimpleBlock(mMaterial))
         {
-          mEngine->setTool(mTool, nullptr);
+          mEngine->setMaterial(mMaterial, nullptr);
         }
-      else if(isComplexBlock(mTool))
+      else if(isComplexBlock(mMaterial))
         {
           BlockData *data = nullptr;
-          switch(mTool)
+          switch(mMaterial)
             {
             case block_t::DEVICE:
               data = new DeviceBlock();
@@ -126,20 +139,26 @@ void ControlInterface::setTool(int id, bool checked)
               data = new CpuBlock(8, 8, 100);
               break;
             }
-          // BlockData *data = new Fluid(mTool, gFluidEvap[mTool], mFluidLevel);
-          // mEngine->setTool(mTool, data);
-          // delete data;
-          mEngine->setTool(mTool, data);
+          mEngine->setMaterial(mMaterial, data);
           delete data;
         }
-      else if(isFluidBlock(mTool))
+      else if(isFluidBlock(mMaterial))
         {
-          LOGD("SETTING TOOL: %s (%d)", toString(mTool).c_str(), (int)mFluidLevel);
-          BlockData *data = new Fluid(mTool, mFluidLevel);
-          mEngine->setTool(mTool, data);
+          LOGD("SETTING MATIERIAL: %s (%d)", toString(mMaterial).c_str(), (int)mFluidLevel);
+          BlockData *data = new Fluid(mMaterial, mFluidLevel);
+          mEngine->setMaterial(mMaterial, data);
           delete data;
         }
     }
+}
+
+void ControlInterface::setTool(int id, bool checked)
+{
+  mEngine->setTool((tool_t)(id + 1));
+}
+void ControlInterface::setToolRad(int rad)
+{
+  mEngine->setToolRad(rad);
 }
 void ControlInterface::setLightLevel(int level)
 {
@@ -198,11 +217,11 @@ void ControlInterface::setFluidLevel(int level)
   mFluidLevel = (float)level / 255.0f;
   std::cout << mFluidLevel << "\n";
   LOGD("SET FLUID LEVEL: %f", mFluidLevel);
-  if(isFluidBlock(mTool))
+  if(isFluidBlock(mMaterial))
     {
-      LOGD("SETTING TOOL: %s (%f)", toString(mTool).c_str(), mFluidLevel);
-      BlockData *data = new Fluid(mTool, mFluidLevel);
-      mEngine->setTool(mTool, data);
+      LOGD("SETTING MATERIAL: %s (%f)", toString(mMaterial).c_str(), mFluidLevel);
+      BlockData *data = new Fluid(mMaterial, mFluidLevel);
+      mEngine->setMaterial(mMaterial, data);
       delete data;
     }
 }
@@ -219,9 +238,9 @@ QGroupBox* ControlInterface::makeSimpleGroup()
   QGroupBox *group = new QGroupBox("Blocks");
               
   // simple group
-  QVBoxLayout *tBox = new QVBoxLayout();
-  tBox->setMargin(20);
-  tBox->setSpacing(0);
+  QVBoxLayout *layout = new QVBoxLayout();
+  layout->setMargin(20);
+  layout->setSpacing(0);
 
   for(int b = (int)simple_t::START; b < (int)simple_t::END; b++)
     {
@@ -230,20 +249,36 @@ QGroupBox* ControlInterface::makeSimpleGroup()
         { r->setChecked(true); }
       
       mMaterialGroup->addButton(r, b);
-      tBox->addWidget(r);
+      layout->addWidget(r);
     }
+  layout->addStretch(1);
 
+  layout->addWidget(new QLabel("Tool:"));
 
-  QVBoxLayout *optBox = new QVBoxLayout();
-  optBox->setMargin(20);
-  optBox->setSpacing(0);
+  QRadioButton *sr = new QRadioButton("Sphere");
+  sr->setChecked(true);
+  mToolGroup->addButton(sr, 0);
+  layout->addWidget(sr);
+  QRadioButton *cr = new QRadioButton("Cube");
+  mToolGroup->addButton(cr, 1);
+  layout->addWidget(cr);
+  QRadioButton *lr = new QRadioButton("Line");
+  mToolGroup->addButton(lr, 2);
+  layout->addWidget(lr);
+
+  QSpinBox *radBox = new QSpinBox();
+  radBox->setRange(1, 32);
+  radBox->setValue(1);
+  connect(radBox, SIGNAL(valueChanged(int)), this, SLOT(setToolRad(int)));
+
+  QGridLayout *grid = new QGridLayout();
+  grid->addWidget(new QLabel("Radius:"), 0,0,1,1);
+  grid->addWidget(radBox, 0,1,1,1);
   
-
-  QHBoxLayout *hbox = new QHBoxLayout();
-  hbox->addLayout(tBox);
-  hbox->addLayout(optBox);
+  layout->addLayout(grid);
+  layout->addStretch(2);
   
-  group->setLayout(hbox);
+  group->setLayout(layout);
   return group;
 }
 
@@ -251,29 +286,19 @@ QGroupBox* ControlInterface::makeComplexGroup()
 {
   QGroupBox *group = new QGroupBox("Computing");
   
-  QVBoxLayout *tBox = new QVBoxLayout();
-  tBox->setMargin(20);
-  tBox->setSpacing(0);
+  QVBoxLayout *layout = new QVBoxLayout();
+  layout->setMargin(20);
+  layout->setSpacing(0);
 
   for(int b = (int)complex_t::START; b < (int)complex_t::END; b++)
     {
       QRadioButton *r = new QRadioButton(toString((block_t)b).c_str());
       mMaterialGroup->addButton(r, b);
-      tBox->addWidget(r);
+      layout->addWidget(r);
     }
-  tBox->setMargin(20);
-  tBox->setSpacing(0);
+  layout->addStretch(1);
   
-  QVBoxLayout *optBox = new QVBoxLayout();
-  optBox->setMargin(20);
-  optBox->setSpacing(0);
-  // TODO: Add options for device/cpu/memory config
-
-  QHBoxLayout *hbox = new QHBoxLayout();
-  hbox->addLayout(tBox);
-  hbox->addLayout(optBox);
-  
-  group->setLayout(hbox);
+  group->setLayout(layout);
   return group;
 }
 
@@ -281,27 +306,19 @@ QGroupBox* ControlInterface::makeFluidGroup()
 {
   QGroupBox *group = new QGroupBox("Fluids");
   
-  QVBoxLayout *tBox = new QVBoxLayout();
-  tBox->setMargin(20);
-  tBox->setSpacing(0);
+  QVBoxLayout *layout = new QVBoxLayout();
+  layout->setMargin(20);
+  layout->setSpacing(0);
   for(int b = (int)fluid_t::START; b < (int)fluid_t::END; b++)
     {
       QRadioButton *r = new QRadioButton(toString((block_t)b).c_str());
       mMaterialGroup->addButton(r, b);
-      tBox->addWidget(r);
+      layout->addWidget(r);
     }
   Button *clearBtn = new Button("Clear Fluids");
   connect(clearBtn, SIGNAL(clicked()), this, SLOT(clearFluids()));
-  tBox->addWidget(clearBtn);
+  layout->addWidget(clearBtn);
   
-  tBox->setMargin(20);
-  tBox->setSpacing(0);
-
-  QVBoxLayout *optBox = new QVBoxLayout();
-  optBox->setMargin(20);
-  optBox->setSpacing(0);
-  // TODO: Add options for device/cpu/memory config
-
   QHBoxLayout *hbox2 = new QHBoxLayout();
   QLabel *levelL = new QLabel("Fluid Level");
   QSlider *levelS = new QSlider(Qt::Horizontal);
@@ -313,7 +330,7 @@ QGroupBox* ControlInterface::makeFluidGroup()
   connect(levelS, SIGNAL(sliderMoved(int)), this, SLOT(setFluidLevel(int)));
   hbox2->addWidget(levelL);
   hbox2->addWidget(levelS);
-  optBox->addLayout(hbox2);
+  layout->addLayout(hbox2);
 
   QLabel *eLabel = new QLabel("");
   QDoubleSpinBox *evap = new QDoubleSpinBox();
@@ -327,18 +344,15 @@ QGroupBox* ControlInterface::makeFluidGroup()
   ebox->addWidget(eLabel);
   ebox->addWidget(evap);
 
-  optBox->addLayout(ebox);
+  layout->addLayout(ebox);
   
   QCheckBox *fluidSimCb = new QCheckBox("Fluid Physics");
   fluidSimCb->setChecked(true);
   connect(fluidSimCb, SIGNAL(stateChanged(int)), this, SLOT(setFluidSim(int)));
-  optBox->addWidget(fluidSimCb);
-
-  QHBoxLayout *hbox = new QHBoxLayout();
-  hbox->addLayout(tBox);  
-  hbox->addLayout(optBox);
+  layout->addWidget(fluidSimCb);
   
-  group->setLayout(hbox);
+  layout->addStretch(1);
+  group->setLayout(layout);
   return group;
 }
 
@@ -346,11 +360,11 @@ QGroupBox* ControlInterface::makePhysicsGroup()
 {
   mPhysicsGroup = new QButtonGroup(this);
   QGroupBox *group = new QGroupBox("Physics");
-  QGridLayout *grid = new QGridLayout();
-  grid->setMargin(20);
-  grid->setSpacing(0);
+  QGridLayout *layout = new QGridLayout();
+  layout->setMargin(20);
+  layout->setSpacing(0);
 
-  group->setLayout(grid);
+  group->setLayout(layout);
   return group;
 }
 
@@ -359,10 +373,9 @@ QGroupBox* ControlInterface::makeRenderGroup()
 {
   mRenderGroup = new QButtonGroup(this);
   QGroupBox *group = new QGroupBox("Render");
-  QGridLayout *grid = new QGridLayout();
-
-  grid->setMargin(20);
-  grid->setSpacing(10);
+  QVBoxLayout *layout = new QVBoxLayout();
+  layout->setMargin(20);
+  layout->setSpacing(10);
   
   // slider to adjust global daylight
   QLabel *sLabel = new QLabel("Light Level");
@@ -373,8 +386,10 @@ QGroupBox* ControlInterface::makeRenderGroup()
   lSlider->setMaximum(mEngine->mLightLevels);
   lSlider->setValue(4);
   connect(lSlider, SIGNAL(sliderMoved(int)), this, SLOT(setLightLevel(int)));
-  grid->addWidget(sLabel, 0,0,1,1);
-  grid->addWidget(lSlider,0,1,1,3);
+
+  QHBoxLayout *lLayout = new QHBoxLayout();
+  lLayout->addWidget(sLabel);
+  lLayout->addWidget(lSlider);
   
   QCheckBox *rtCb = new QCheckBox("Ray Trace");
   connect(rtCb, SIGNAL(stateChanged(int)), this, SLOT(setRaytrace(int)));
@@ -382,9 +397,6 @@ QGroupBox* ControlInterface::makeRenderGroup()
   connect(wireCb, SIGNAL(stateChanged(int)), this, SLOT(setWireframe(int)));
   QCheckBox *frustCb = new QCheckBox("Frustum Culling");
   connect(frustCb, SIGNAL(stateChanged(int)), this, SLOT(setFrustumCulling(int)));
-  grid->addWidget(rtCb, 1, 0, 1, 3);
-  grid->addWidget(wireCb, 2, 0, 1, 3);
-  grid->addWidget(frustCb, 3, 0, 1, 3);
   
   QGroupBox *rGroup = new QGroupBox("Render Distance");
   QGridLayout *rGrid = new QGridLayout();
@@ -412,29 +424,34 @@ QGroupBox* ControlInterface::makeRenderGroup()
 
   rGroup->setLayout(rGrid);
 
-  grid->addWidget(rGroup, 0,4,3,4);
-  group->setLayout(grid);
+  layout->addLayout(lLayout);
+  layout->addWidget(rtCb);
+  layout->addWidget(wireCb);
+  layout->addWidget(frustCb);
+  
+  layout->addStretch(1);
+  layout->addWidget(rGroup); // chunk radius settings at bottom of widget
+  group->setLayout(layout);
   return group;
 }
 QGroupBox* ControlInterface::makeDebugGroup()
 {
   mDebugGroup = new QButtonGroup(this);
   QGroupBox *group = new QGroupBox("Debug");
-  QVBoxLayout *vbox = new QVBoxLayout();
+  QVBoxLayout *layout = new QVBoxLayout();
+  layout->setMargin(20);
+  layout->setSpacing(0);
   
   QCheckBox *debugCb = new QCheckBox("Chunk Bounds");
   connect(debugCb, SIGNAL(stateChanged(int)), this, SLOT(setDebug(int)));
   
-  vbox->addWidget(debugCb);
-  vbox->setMargin(20);
-  vbox->setSpacing(0);
+  layout->addWidget(debugCb);
 
-  ChunkLoadWidget *loaded = new ChunkLoadWidget(mEngine->getWorld());
+  ChunkDisplay *loaded = new ChunkDisplay(mEngine->getWorld());
+
+  layout->addWidget(loaded);
+  layout->addStretch(1);
   
-  QHBoxLayout *hbox = new QHBoxLayout();
-  hbox->addLayout(vbox);
-  hbox->addWidget(loaded);
-  
-  group->setLayout(hbox);
+  group->setLayout(layout);
   return group;
 }

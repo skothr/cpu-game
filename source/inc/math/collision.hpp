@@ -8,7 +8,7 @@ class cBoundingBox
 {
 public:
   cBoundingBox();
-  cBoundingBox(const Point3f &center, const Vector3f &size);
+  cBoundingBox(const Point3f &pos, const Vector3f &size);
 
   bool collides(const cBoundingBox &b) const;
   bool collidesEdge(const cBoundingBox &b) const;
@@ -18,19 +18,18 @@ public:
 
   Vector3f correction(const cBoundingBox &b, const Vector3f &dir, const Vector3i &onGround) const;
 
+  Point3f pos() const;
+  Point3f size() const;
   Point3f maxPoint() const;
   Point3f minPoint() const;
-  Point3f center() const;
-  Point3f size() const;
 
-  void setCenter(const Point3f &center);
+  void setPos(const Point3f &pos);
   void setSize(const Vector3f &size);
 
   void move(const Vector3f &dPos);
   
 private:
-  Point3f mCenter;
-  Point3f mMin;
+  Point3f mPos;
   Point3f mMax;
   Vector3f mSize;
 };
@@ -38,7 +37,7 @@ private:
 class cCollidable
 {
 public:
-  cCollidable(const Point3f &center, const Vector3f &size);
+  cCollidable(const Point3f &pos, const Vector3f &size);
   
 protected:
   cBoundingBox mBox;

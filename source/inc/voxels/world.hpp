@@ -3,32 +3,26 @@
 
 #include "block.hpp"
 #include "chunk.hpp"
-#include "chunkMesh.hpp"
-#include "threadQueue.hpp"
-#include "threadPool.hpp"
+#include "chunkMap.hpp"
 #include "miscMath.hpp"
-#include "frustum.hpp"
 #include "meshing.hpp"
 #include "terrain.hpp"
 #include "fluidManager.hpp"
 #include "hashing.hpp"
 
 #include <mutex>
-#include <atomic>
 #include <vector>
-#include <list>
-#include <condition_variable>
-#include <unordered_map>
-#include <unordered_set>
 
 class Shader;
 class cTextureAtlas;
-class ChunkLoader;
 class FluidChunk;
 class MeshRenderer;
 class RayTracer;
 class ModelObj;
-
+class Camera;
+class ChunkLoader;
+class cMeshBuffer;
+class ChunkVisualizer;
 
 class World
 {
@@ -59,13 +53,20 @@ public:
 
   int totalChunks() const { return mChunkDim[0]*mChunkDim[1]*mChunkDim[2]; }
   int centerChunks() const { return (mChunkDim[0]-2)*(mChunkDim[1]-2)*(mChunkDim[2]-2); }
-  int numLoaded() const { return mNumLoaded; }
+  int numLoaded() const;
   int numMeshed();
 
   bool chunkIsLoading(const Point3i &cp);
   bool chunkIsLoaded(const Point3i &cp);
   bool chunkIsMeshed(const Point3i &cp);
+  bool chunkIsMeshing(const Point3i &cp);
   bool chunkIsEmpty(const Point3i &cp);
+  bool chunkIsReady(const Point3i &cp);
+  bool chunkIsVisible(const Point3i &cp);
+
+  void rotateVisualizer(const Vector3f &angle);
+
+  ChunkMap* getChunkMap() { return &mChunkMap; }
 
   void reset();
 
@@ -80,7 +81,7 @@ public:
   void setRaytracing(bool on);
   void clearFluids();
 
-  void setFrustum(Frustum *frustum);
+  void setCamera(Camera *camera);
   void setFrustumCulling(bool on);
   void pauseFrustumCulling();
 
@@ -103,8 +104,12 @@ public:
 
   block_t* at(const Point3i &wp);
   block_t getType(const Point3i &wp);
-  Chunk* getChunk(const Point3i &wp);
+  ChunkPtr getChunk(const Point3i &wp);
   bool setBlock(const Point3i &p, block_t type, BlockData *data = nullptr);
+  
+  bool setRange(const Point3i &center, int rad, block_t type, BlockData *data=nullptr);
+  bool setRange(const Point3i &p1, const Point3i &p2, block_t type, BlockData *data=nullptr);
+  bool setSphere(const Point3i &center, int rad, block_t type, BlockData *data=nullptr);
   
   bool rayCast(const Point3f &p, const Vector3f &d, float radius,
 	       CompleteBlock &blockOut, Point3i &posOut, Vector3i &faceOut );
@@ -115,63 +120,59 @@ public:
   static Point3i chunkPos(const Point3i &wp);
   
 private:
+  // flags
   bool mInitialized = false;
   bool mRaytrace = false;
   bool mDebug = false;
   bool mSimFluids = true;
   float mEvapRate = 0.0;
-  bool mFoundCenter = false;
   bool mResetGL = false;
-  
-  float mFogStart;
-  float mFogEnd;
-  Vector3f mDirScale;
-  bool mRadChanged = false;
+  bool mFrustumPaused = false;
 
-  Point3i mPlayerStartPos;
-  bool mPlayerReady = false;
-  
+  // main objects
+  ChunkMap mChunkMap;
+  FluidManager mFluids;
   ChunkLoader *mLoader;
+  MeshRenderer *mRenderer;
+  RayTracer *mRayTracer;
+
+  Camera *mCamera = nullptr;
+
+  ChunkVisualizer *mVisualizer = nullptr;
+  Vector3f mVisualizerRotate = Vector3f{0,0,0};
+
+  // rendering
+  Shader *mChunkLineShader = nullptr;
+  cMeshBuffer* mChunkLineMesh = nullptr;
+  Shader *mFrustumShader = nullptr;
+  cMeshBuffer *mFrustumMesh = nullptr;
+
+  // chunk load range
   Point3i mCenter;
   Vector3i mLoadRadius;
   Vector3i mChunkDim;
   Point3i mMinChunk;
   Point3i mMaxChunk;
-  
+
+  // fog
+  float mFogStart;
+  float mFogEnd;
+  Vector3f mDirScale;
+  bool mRadChanged = false;
+
+  // lighting
   int mLighting = 0;
+
+  // player/camera positions
   Point3f mCamPos;
+  Point3i mPlayerStartPos;
+  bool mPlayerReady = false;
 
-  FluidManager mFluids;
-  centerLoopCallback_t mCenterLoopCallback;
+  // timing update loop
+  double mUpdateTime = 0.0;
+  int mUpdateCount = 0;
   
-  // chunk updating / threading
-  std::mutex mChunkLock;
-  std::mutex mUnloadLock;
-  std::mutex mLoadLock;
-  std::mutex mBoundaryLock;
-    
-  int mMaxLoad;
-  std::atomic<int> mNumLoading = 0;
-  int mCenterDistIndex = 0;
-  std::atomic<int> mNumLoaded = 0;
-
-  std::unordered_map<hash_t, Chunk*> mChunks;
-  std::unordered_map<hash_t, ChunkBounds*> mChunkBoundaries;
-  std::queue<Chunk*> mUnusedChunks;
-  std::list<Chunk*> mLoadQueue;
-
-  // rendering
-  MeshRenderer *mRenderer = nullptr;
-  RayTracer *mRayTracer = nullptr;
-  Shader *mChunkLineShader = nullptr;
-  cMeshBuffer* mChunkLineMesh = nullptr;
-
-  Shader *mFrustumShader = nullptr;
-  cMeshBuffer *mFrustumMesh = nullptr;
-  
-  std::mutex mTimingLock;
-  double mMeshTime = 0.0;
-  int mMeshNum = 0;
+  void addChunkFace(MeshData &data, Chunk *chunk, const Point3i &cp, bool meshed);
 
   bool isEdge(hash_t hash);
   blockSide_t getEdges(hash_t hash);
@@ -179,11 +180,11 @@ private:
   
   block_t* atBlock(const Point3i &wp);
   block_t getBlock(const Point3i &wp);
-  void updateAdjacent(const Point3i &wp);
+  //void updateAdjacent(const Point3i &wp);
 
-  bool neighborsLoaded(hash_t hash, Chunk *chunk);
+  //bool neighborsLoaded(hash_t hash, Chunk *chunk);
   void chunkLoadCallback(Chunk *chunk);
-  bool checkChunkLoad(const Point3i &cp);
+  //bool checkChunkLoad(const Point3i &cp);
 
   Point3i playerStartPos() const;
   int getHeightAt(const Point2i &xy, bool *success = nullptr);

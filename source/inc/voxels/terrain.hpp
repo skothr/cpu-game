@@ -20,39 +20,27 @@ enum class terrain_t : int8_t
    PERLIN,
    PERLIN_CAVES,
 
+   TEST,
    COUNT
   };
 
+
+static const std::vector<std::string> gTerrainStrings = { "Dirt Ground",
+                                                          "Perlin World",
+                                                          "Perlin",
+                                                          "Perlin Caves",
+                                                          "TEST" };
+
 inline std::string toString(terrain_t t)
 {
-  switch(t)
-    {
-    case terrain_t::DIRT_GROUND:
-      return "Dirt Ground";
-    case terrain_t::PERLIN:
-      return "Perlin";
-    case terrain_t::PERLIN_WORLD:
-      return "Perlin World";
-    case terrain_t::PERLIN_CAVES:
-      return "Perlin Caves";
-    default:
-      return "<INVALID>";
-    }
+  return (((int)t < (int)terrain_t::COUNT &&
+           (int)t > (int)terrain_t::INVALID) ? gTerrainStrings[(int)t] : "<INVALID>" );
 }
 inline terrain_t terrainFromString(const std::string &str)
 {
-  if(str == "Dirt Ground")
-    {
-      return terrain_t::DIRT_GROUND;
-    }
-  else if(str == "Perlin")
-    {
-      return terrain_t::PERLIN;
-    }
-  else if(str == "Perlin World")
-    {
-      return terrain_t::PERLIN_WORLD;
-    }
+  auto iter = std::find(gTerrainStrings.begin(), gTerrainStrings.end(), str);
+  if(iter != gTerrainStrings.end())
+    { return (terrain_t)(iter - gTerrainStrings.begin()); }
   else
     { return terrain_t::INVALID; }
 }

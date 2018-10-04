@@ -84,11 +84,11 @@ void cMeshBuffer::render()
 {
   //LOGD("CHUNK MESH RENDERING --> %d, %d", (long)activeVBO(), (long)activeIBO());
   if(!empty())
-  {
-    mVao->bind();
-    glDrawElements(mMode, mNumDraw, GL_UNSIGNED_INT, 0);
-    mVao->release();
-  }
+    {
+      mVao->bind();
+      glDrawElements(mMode, mNumDraw, GL_UNSIGNED_INT, 0);
+      mVao->release();
+    }
 }
 
 void cMeshBuffer::uploadData(const MeshData &data)
@@ -105,15 +105,13 @@ void cMeshBuffer::uploadData(const MeshData &data)
 
 void cMeshBuffer::detachData()
 {
-  /*
   mVbo->bind();
-  glBufferData(GL_VERTEX_BUFFER, 0, NULL, GL_DYNAMIC_DRAW);
+  glBufferData(GL_ARRAY_BUFFER, 0, NULL, GL_DYNAMIC_DRAW);
   mIbo->bind();
   glBufferData(GL_ELEMENT_ARRAY_BUFFER, 0, NULL, GL_DYNAMIC_DRAW);
 
   mVbo->release();
   mIbo->release();
-  */
 }
 
 /*

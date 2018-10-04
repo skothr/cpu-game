@@ -6,79 +6,112 @@
 #include <QRectF>
 
 ChunkLoadWidget::ChunkLoadWidget(World *world, QWidget *parent)
-  : QWidget(parent), mWorld(world)
+  : QWidget(parent), mWorld(world), mOptions(std::string("1111111"))
 {
-  //mLayout = new QGridLayout();
+  setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+  setMinimumHeight(256);
+  setMinimumWidth(256);
+  //setSizeHint(QSize(256,256));
 }
 ChunkLoadWidget::~ChunkLoadWidget()
 {
 
 }
-  
+
+void ChunkLoadWidget::setOptions(options_t opt)
+{ mOptions = opt; }
+
+void ChunkLoadWidget::setOption(Option opt, int state)
+{
+  mOptions[opt] = state;
+}
+
+void ChunkLoadWidget::setZ(int z)
+{ zLevel = z; }
+
+
+// void ChunkLoadWidget::drawBackground(QPainter *painter, const QRectF &rect)
+// {
+
+// }
+// void ChunkLoadWidget::drawForeground(QPainter *painter, const QRectF &rect)
+// {
+
+// }
+
 void ChunkLoadWidget::paintEvent(QPaintEvent *event)
 {
   if(!mWorld)
     { LOGW("Chunk load widget has null world!!"); }
   QPainter painter(this);
-  painter.setRenderHint(QPainter::Antialiasing);
+  //painter.setRenderHint(QPainter::Antialiasing);
 
-  static const int rectW = 5;
-  static const int rectH = 5;
-  static const int rectPad = 1;
-  static const int borderChunks = 1;
+  static const float padding = 2;
+  static const int borderChunks = 2;
 
-
-  Point3i center = mWorld->getCenter();
-  Vector3i radius = mWorld->getRadius();
-  Point3i min = center - radius;
+  const Point3i center = mWorld->getCenter();
+  const Vector3i radius = mWorld->getRadius();
+  const Point3i min = center - radius;
   
-  const int chunkW = (rectW+rectPad) * (radius[0]*2 + 1 + 2*borderChunks) - rectPad;
-  const int chunkH = (rectH+rectPad) * (radius[1]*2 + 1 + 2*borderChunks) - rectPad;
-  const Vector2i zSpacing{ chunkW, chunkH };
+  const Vector3i chunkDim = radius*2 + 1 + 2*borderChunks;
+  
+  const float rectW = (width() - padding) / (chunkDim[0]);
+  const float rectH = (height() - padding) / (chunkDim[1]);
 
-  int col = radius[2] - 1;
+  const float rectSize = std::min(rectW, rectH) - padding;
+  const Vector2f margin = Vector2f{width() - padding - (rectSize+padding)*(chunkDim[0]),
+                                   height() - padding - (rectSize+padding)*(chunkDim[1]) } / 2.0f + padding;
+  
   Point3i p;
-  for(int z = 0; z < radius[2]*2+1; z++)
-    {
-      int row = (z < radius[2] ? 2 : (z > radius[2] ? 0 : 1));
-      
-      for(int x = 0; x < radius[0]*2+1 + 2*borderChunks; x++)
-        for(int y = 0; y < radius[1]*2+1 + 2*borderChunks; y++)
-          {
-            p[0] = min[0] - borderChunks + x;
-            p[1] = min[1] - borderChunks + y;
-            p[2] = min[2] + z;
-            QPainterPath path;
-            path.addRoundedRect(QRectF((rectW+rectPad) * x + zSpacing[0] * col,
-                                       (rectH+rectPad) * y + zSpacing[1] * row,
-                                       rectW, rectH), 1, 1 );
-            if(mWorld->chunkIsEmpty(p))
-              { painter.fillPath(path, Qt::gray); }
-            else if(mWorld->chunkIsMeshed(p))
-              { painter.fillPath(path, Qt::green); }
-            else if(mWorld->chunkIsLoaded(p))
-              { painter.fillPath(path, Qt::cyan); }
-            else if(mWorld->chunkIsLoading(p))
-              { painter.fillPath(path, Qt::yellow); }
-            else
-              { painter.fillPath(path, Qt::red); }
+  for(int x = 0; x < chunkDim[0]; x++)
+    for(int y = 0; y < chunkDim[1]; y++)
+      {
+        p[0] = min[0] - borderChunks + x;
+        p[1] = min[1] - borderChunks + (chunkDim[1]-y-1);
+        p[2] = center[2] + zLevel;
+        QPainterPath path;
+        path.addRoundedRect(QRectF(margin[0] + (rectSize+padding) * x,
+                                   margin[1] + (rectSize+padding) * y, rectSize, rectSize), 1, 1 );
+        if(mOptions[OPT_EMPTY] && mWorld->chunkIsEmpty(p))
+          { painter.fillPath(path, Qt::darkGray); }
+        else if(mOptions[OPT_MESHED] && mWorld->chunkIsMeshed(p))
+          { painter.fillPath(path, Qt::green); }
+        else if(mOptions[OPT_MESHED] && mWorld->chunkIsMeshing(p))
+          { painter.fillPath(path, Qt::magenta); }
+        else if(mOptions[OPT_READY] && mWorld->chunkIsReady(p))
+          { painter.fillPath(path, Qt::darkGreen); }
+        else if(mOptions[OPT_LOADED] && mWorld->chunkIsLoaded(p))
+          { painter.fillPath(path, Qt::darkCyan); }
+        else if(mOptions[OPT_LOADING] && mWorld->chunkIsLoading(p))
+          { painter.fillPath(path, Qt::darkYellow); }
+        else
+          { painter.fillPath(path, Qt::darkRed); }
               
-            painter.drawPath(path);
-            if(p == center)
-              {
-                QPen pen(Qt::magenta, 3);
-                QPen old = painter.pen(); 
-                painter.setPen(pen);
-                painter.drawRect(QRectF(zSpacing[0] * col, zSpacing[1] * row,
-                                        (radius[0]*2 + 1 + 2*borderChunks) * (rectW + rectPad),
-                                        (radius[1]*2 + 1 + 2*borderChunks) * (rectH + rectPad) ));
-                painter.setPen(old);
-              }
+        painter.drawPath(path);
 
+        // draw outline round square
+        QColor col;
+        bool draw = false;
+        if(mOptions[OPT_CENTER] && p == center)
+          {
+            col = Qt::blue;
+            draw = true;
           }
-      if(z < radius[2] - 1)
-        { col--; }
-      else if(z > radius[2])
-        { col++; }
-    }
+        else if(mOptions[OPT_RENDER] && mWorld->chunkIsVisible(p))
+          {
+            col = Qt::white;
+            draw = true;
+          }
+        
+        if(draw)
+          {
+            QPen old = painter.pen();
+            QPen pen(col);
+            pen.setWidth(3);
+            painter.setPen(pen);
+            painter.drawRect(QRectF(margin[0] + (rectSize+padding) * x,
+                                    margin[1] + (rectSize+padding) * y, rectSize, rectSize));
+            painter.setPen(old);
+          }
+      }
 }

@@ -7,8 +7,9 @@
 #include "chunk.hpp"
 #include "chunkMesh.hpp"
 #include "fluidManager.hpp"
-#include "frustum.hpp"
 #include "world.hpp"
+#include "traversalTree.hpp"
+#include <unistd.h>
 
 
 
@@ -80,14 +81,15 @@ void MeshRenderer::setMeshThreads(int meshThreads)
 }
 
 
-void MeshRenderer::start()
+void MeshRenderer::startMeshing()
 {
   mMeshPool.start();
 }
-void MeshRenderer::stop()
+void MeshRenderer::stopMeshing()
 {
   mMeshPool.stop(false);
   mMeshCv.notify_all();
+  mPriorityCv.notify_all();
   mMeshPool.stop(true);
 }
 
@@ -141,6 +143,27 @@ bool MeshRenderer::initGL(QObject *qParent)
           mComplexShader->setUniform("uTex", 0);
           mComplexShader->release();
         }
+      
+      // mMiniMapShader = new Shader(qParent);
+      // if(!mMiniMapShader->loadProgram("./shaders/miniMap.vsh", "./shaders/miniMap.fsh",
+      //                                 {"posAttr", "normalAttr", "texCoordAttr"},
+      //                                 {"pvm", "uTex"} ))
+      //   {
+      //     LOGE("MiniMap shader failed to load!");
+      //     delete mMiniMapShader;
+      //     mMiniMapShader = nullptr;
+      //     delete mBlockShader;
+      //     mBlockShader = nullptr;
+      //     delete mComplexShader;
+      //     mComplexShader = nullptr;
+      //     return false;
+      //   }
+      // else
+      //   {
+      //     mMiniMapShader->bind();
+      //     mMiniMapShader->setUniform("uTex", 0);
+      //     mMiniMapShader->release();
+      //   }
 
       for(auto &iter : gComplexModelPaths)
         {
@@ -148,6 +171,8 @@ bool MeshRenderer::initGL(QObject *qParent)
           if(!model->initGL(mComplexShader))
             {
               LOGE("Complex model initialization failed!");
+          // delete mMiniMapShader;
+          // mMiniMapShader = nullptr;
               delete mComplexShader;
               mComplexShader = nullptr;
               delete mBlockShader;
@@ -162,6 +187,8 @@ bool MeshRenderer::initGL(QObject *qParent)
       if(!mTexAtlas->create("./res/texAtlas.png"))
         {
           LOGE("Failed to load texture atlas!");
+          // delete mMiniMapShader;
+          // mMiniMapShader = nullptr;
           delete mComplexShader;
           mComplexShader = nullptr;
           delete mBlockShader;
@@ -181,6 +208,7 @@ void MeshRenderer::cleanupGL()
   if(mInitialized)
     {
       delete mBlockShader;
+      //delete mMiniMapShader;
       mTexAtlas->destroy();
       delete mTexAtlas;
 
@@ -233,6 +261,7 @@ void MeshRenderer::addMesh(MeshedChunk *mc)
     {
       std::lock_guard<std::mutex> lock(mMeshedLock);
       mMeshed.insert(mc->hash);
+      mMeshed.insert(mc->hash);
     }
   
   ChunkMesh *mesh;
@@ -258,7 +287,7 @@ void MeshRenderer::clearMeshes()
   
 }
 
-#define RENDER_LOAD_MESH_PER_FRAME 6
+#define RENDER_LOAD_MESH_PER_FRAME 1
 void MeshRenderer::render(const Matrix4 &pvm, const Point3f &camPos, bool reset)
 {
   if(reset)
@@ -336,6 +365,7 @@ void MeshRenderer::render(const Matrix4 &pvm, const Point3f &camPos, bool reset)
         if(iter != mRenderMeshes.end())
           {
             ChunkMesh *mesh = iter->second;
+            mesh->detachData();
             mRenderMeshes.erase(hash);
             mUnusedMeshes.push(mesh);
             
@@ -355,134 +385,85 @@ void MeshRenderer::render(const Matrix4 &pvm, const Point3f &camPos, bool reset)
 
   // render all loaded chunks
   mTexAtlas->bind();
-  {
-    std::lock_guard<std::mutex> lock(mRenderLock);
-    mBlockShader->bind();
-    mBlockShader->setUniform("pvm", pvm);
-    mBlockShader->setUniform("camPos", camPos);
-    if(mFogChanged)
-      {
-        mBlockShader->setUniform("fogStart", mFogStart);
-        mBlockShader->setUniform("fogEnd", mFogEnd);
-        mBlockShader->setUniform("dirScale", mDirScale);
-        mFogChanged = false;
-      }
-
-    if(!mFrustumCulling || !mFrustumPaused)
-      {
-        const Vector3f playerEye = mFrustum->getEye();
-
-        static const std::vector<blockSide_t> stepSides { blockSide_t::PX,
-                                                          blockSide_t::PY,
-                                                          blockSide_t::PZ,
-                                                          blockSide_t::NX,
-                                                          blockSide_t::NY,
-                                                          blockSide_t::NZ };
-        static const std::vector<Vector3f> stepDirs { sideDirection(stepSides[0]),
-                                                      sideDirection(stepSides[1]),
-                                                      sideDirection(stepSides[2]),
-                                                      sideDirection(stepSides[3]),
-                                                      sideDirection(stepSides[4]),
-                                                      sideDirection(stepSides[5]) };
-
-        std::unordered_set<hash_t> traversed;
-        std::queue<std::pair<hash_t, blockSide_t>> steps;
-        
-        const hash_t cHash = Hash::hash(mCenter);
-        steps.push({cHash, blockSide_t::NONE});
-        //blockSide_t prevSide = blockSide_t::NONE;
-
-        while(steps.size() > 0)
-          {
-            const hash_t hash = steps.front().first;
-            const blockSide_t prevSide = steps.front().second;
-            steps.pop();
-
-            //LOGD("RENDER STEP --> HASH: %d, PREV: %d, TRAVERSED: %d", hash, (int)prevSide, traversed.count(hash));
-
-            if(traversed.count(hash) > 0)
-              { continue; }
-            else
-              { traversed.insert(hash); }
-
-            auto mIter = mRenderMeshes.find(hash);
-            if(mIter != mRenderMeshes.end())
-              {
-                if(mFrustumCulling)
-                  {
-                    //LOGD("FRUSTUM CULLING");
-                    // frustum culling active
-                    //LOGD("FRUSTUM PAUSED");
-                    if(hash == cHash ||
-                       mFrustum->cubeInside(Hash::unhash(hash)*Chunk::size, Chunk::size) )
-                      { mIter->second->render(); }
-                  }
-                else
-                  {
-                    //LOGD("NO FRUSTUM CULLING");
-                    mIter->second->render();
-                  }
-              }
-
-            std::unique_lock<std::mutex> lock(mChunkLock);
-            auto cIter = mRenderChunks.find(hash);
-            if(cIter != mRenderChunks.end())
-              {
-                Chunk *chunk = cIter->second;
-                lock.unlock();
-            
-                //chunk->printEdgeConnections();
-                for(int i = 0; i < 6; i++)
-                  {
-                    if(prevSide == blockSide_t::NONE ||
-                       chunk->edgesConnected(prevSide, stepSides[i]) )
-                      {
-                        //if(stepDirs[i].dot(playerEye) > 0.0f)
-                          {
-                            steps.push({Hash::hash(chunk->pos() + stepDirs[i]),
-                                        oppositeSide(stepSides[i]) });
-                          }
-                      }
-                  }
-              }
-          }
-      }
-    else
-      { // frustum culling paused to observe which chunks are culled
-        for(auto &hash : mFrustumRender)
-          {
-            auto iter = mRenderMeshes.find(hash);
-            if(iter != mRenderMeshes.end() && iter->second)
-              { iter->second->render(); }
-          }
-      }
-    
-    for(auto &iter : mFluidMeshes)
-      { iter.second->render(); }
-    mBlockShader->release();
-
-    // render complex models
-    mComplexShader->bind();
-    auto indexer = Chunk::indexer();
+  mBlockShader->bind();
+  mBlockShader->setUniform("pvm", pvm);
+  mBlockShader->setUniform("camPos", camPos);
+  if(mFogChanged)
     {
-      for(auto &iter : mComplexBlocks)
+      mBlockShader->setUniform("fogStart", mFogStart);
+      mBlockShader->setUniform("fogEnd", mFogEnd);
+      mBlockShader->setUniform("dirScale", mDirScale);
+      mFogChanged = false;
+    }
+
+  Camera *cam = (mFrustumCulling && mFrustumPaused ? &mPausedCamera : mCamera);
+  std::vector<hash_t> visible = mMap->getVisible(mFrustumCulling ?
+                                                 (mFrustumPaused ? &mPausedCamera : mCamera) :
+                                                 nullptr );
+  std::lock_guard<std::mutex> lock(mRenderLock);
+  mVisible.clear();
+  for(auto hash : visible)
+    {
+      auto mIter = mRenderMeshes.find(hash);
+      if(mIter != mRenderMeshes.end())
         {
-          Point3i cp = Hash::unhash(iter.first);
-          for(auto &c : iter.second)
-            {
-              Point3i bp = cp*Chunk::size + indexer.unindex(c.first);
-              Matrix4 pvmTrans = pvm;
-              pvmTrans.translate(bp[0], bp[1], bp[2]);
-              mComplexShader->setUniform("uBlockType", (int)c.second->type()-1);
-              mComplexModels[c.second->type()]->render(mComplexShader, pvm*pvmTrans);
-            }
+          mIter->second->render();
+          mVisible.insert(hash);
         }
     }
-    mComplexShader->release();
+  for(auto &iter : mFluidMeshes)
+    { iter.second->render(); }
+  mBlockShader->release();
+
+  // render complex models
+  mComplexShader->bind();
+  auto indexer = Chunk::indexer();
+  {
+    for(auto &iter : mComplexBlocks)
+      {
+        Point3i cp = Hash::unhash(iter.first);
+        for(auto &c : iter.second)
+          {
+            Point3i bp = cp*Chunk::size + indexer.unindex(c.first);
+            Matrix4 pvmTrans = pvm;
+            pvmTrans.translate(bp[0], bp[1], bp[2]);
+            mComplexShader->setUniform("uBlockType", (int)c.second->type()-1);
+            mComplexModels[c.second->type()]->render(mComplexShader, pvm*pvmTrans);
+          }
+      }
   }
+  mComplexShader->release();
+  
+  // #define VP_PADDING 20
+  // #define VP_W 200
+  // #define VP_H 200
+  
+  // GLint vp[4];
+  // glGetIntegerv(GL_VIEWPORT, vp);
+  
+  // // RENDER MINIMAP
+  
+  // QMatrix4x4 miniMapP, miniMapV;
+  // miniMapP.setToIdentity();
+  // miniMapV.setToIdentity();
+  
+  // miniMapP.ortho(camPos[0]-(mRadius[0]-1)*Chunk::sizeX, camPos[0]+(mRadius[0]+1)*Chunk::sizeX,
+  //                camPos[1]-(mRadius[1]-1)*Chunk::sizeY, camPos[1]+(mRadius[1]+1)*Chunk::sizeY, 50, -50 );
+  // miniMapV.lookAt(toQt(camPos),
+  //                 QVector3D(camPos[0], camPos[1], camPos[2]-1),
+  //                 QVector3D(0.0f,1.0f,0.0f) );
+
+  // mMiniMapShader->bind();
+  // glViewport(VP_PADDING, VP_PADDING, VP_W, VP_H);
+  // glClear(GL_DEPTH_BUFFER_BIT);
+  // mMiniMapShader->setUniform("pvm", Matrix4(miniMapP) * Matrix4(miniMapV));
+  // for(auto mesh : mRenderMeshes)
+  //   { mesh.second->render(); }
+  // glViewport(vp[0], vp[1], vp[2], vp[3]);
+  // mMiniMapShader->release();
+    
   mTexAtlas->release();
 }
-
 
 void MeshRenderer::setFog(float fogStart, float fogEnd, const Vector3f &dirScale)
 {
@@ -498,99 +479,109 @@ void MeshRenderer::reorderQueue(const Point3i &newCenter)
   mCenter = newCenter;
 }
 
-void MeshRenderer::load(Chunk *chunk, const Point3i &center)
+void MeshRenderer::load(Chunk *chunk, const Point3i &center, bool priority)
 {
   mCenter = center;
   {
     std::lock_guard<std::mutex> lock(mChunkLock);
     mRenderChunks[Hash::hash(chunk->pos())] = chunk;
   }
-
+  
   std::unique_lock<std::mutex> lock(mMeshLock);
-  mLoadQueue.push_front(chunk);
+  if(priority)
+    { mPriorityMeshQueue.push_back(chunk); }
+  else
+    { mMeshQueue.push_back(chunk); }
+  
   mMeshing.insert(Hash::hash(chunk->pos()));
   lock.unlock();
-  mMeshCv.notify_one();
+  if(priority)
+    {
+      mPriorityCv.notify_one();
+    }
+  else
+    {
+      mMeshCv.notify_one();
+    }
 }
 void MeshRenderer::unload(hash_t hash)
 {
   { // stop meshing chunk
     std::lock_guard<std::mutex> lock(mMeshLock);
-    if(mMeshing.count(hash) > 0)
-      { mMeshing.erase(hash); }
+    mMeshing.erase(hash);
   }
-  {
+  { // remove complex chunk
     std::lock_guard<std::mutex> lock(mRenderLock);
     mComplexBlocks.erase(hash);
   }
-  // unload mesh
-  std::lock_guard<std::mutex> lock(mUnloadLock);
-  mUnloadQueue.insert(hash);
+  { // unload mesh
+    std::lock_guard<std::mutex> lock(mUnloadLock);
+    mUnloadQueue.insert(hash);
+  }
 }
 
 bool MeshRenderer::isMeshed(hash_t hash)
 {
-  std::unique_lock<std::mutex> lock(mMeshLock);
-  auto mIter = mMeshed.find(hash);
-  return (mIter != mMeshed.end());
+  std::unique_lock<std::mutex> lock(mMeshedLock);
+  return (mMeshed.find(hash) != mMeshed.end());
+}
+bool MeshRenderer::isMeshing(hash_t hash)
+{
+  std::unique_lock<std::mutex> lock(mMeshedLock);
+  return (mMeshingNow.find(hash) != mMeshingNow.end());
 }
 
-bool MeshRenderer::isCulled(hash_t hash)
+bool MeshRenderer::isVisible(hash_t hash)
 {
-  std::unique_lock<std::mutex> lock(mChunkLock);
-  auto mIter = mRenderChunks.find(hash);
-  if(mIter != mRenderChunks.end())
-    { return mFrustum->cubeInside(Hash::unhash(hash)*Chunk::size, Chunk::size); }
-  else
-    { return false; }
+  std::unique_lock<std::mutex> lock(mRenderLock);
+  return mVisible.count(hash) > 0;
 }
 
 void MeshRenderer::meshWorker(int tid)
 {
   if(!mMeshPool.running())
     { return; }
+  
   // wait for chunks to mesh
   std::unique_lock<std::mutex> lock(mMeshLock);
-  mMeshCv.wait(lock, [this]{ return !mMeshPool.running() || mLoadQueue.size() > 0; });
+  mWaitingThreads++;
+  ChunkPtr next = nullptr;
+  mMeshCv.wait(lock, [this]{ return (!mMeshPool.running() ||
+                                     mPriorityMeshQueue.size() > 0 ||
+                                     mMeshQueue.size() > 0 );});
   if(!mMeshPool.running())
     { return; }
 
-  // get chunk
-  std::list<Chunk*>::iterator next;
-  float minDist = -1.0f;
-  for(auto iter = mLoadQueue.begin(); iter != mLoadQueue.end(); ++iter)
+  if(mPriorityMeshQueue.size() > 0)
     {
-      Vector3i diff = (*iter)->pos() - mCenter;
-      float dist = diff.dot(diff);
-      if(minDist < 0.0f || dist < minDist)
-        {
-          minDist = dist;
-          next = iter;
-        }
+      next = mPriorityMeshQueue.front();
+      mPriorityMeshQueue.pop_front();
     }
-
-  if(next != mLoadQueue.end())
+  else if(mMeshQueue.size() > 0)
     {
-      hash_t cHash = Hash::hash((*next)->pos());
-      mLoadQueue.erase(next);
-      if(mMeshing.count(cHash) > 0)
-        { // mesh chunk
-          mMeshing.erase(cHash);
-          mMeshLock.unlock();
-          updateChunkMesh(*next);
-        }
-    }  
-  /*
-  Chunk *next = mLoadQueue.front();
-  mLoadQueue.pop_front();
-  hash_t cHash = Hash::hash(next->pos());
+      next = mMeshQueue.front();
+      mMeshQueue.pop_front();
+    }
+    
+  mWaitingThreads--;
+  
+  // get chunk
+  hash_t cHash = next->hash();
   if(mMeshing.count(cHash) > 0)
     { // mesh chunk
       mMeshing.erase(cHash);
-      mMeshLock.unlock();
+      //LOGD("MESHING: %d", cHash);
+      lock.unlock();
+      {
+        std::lock_guard<std::mutex> lock(mMeshedLock);
+        mMeshingNow.insert(cHash);
+      }
       updateChunkMesh(next);
+      {
+        std::lock_guard<std::mutex> lock(mMeshedLock);
+        mMeshingNow.erase(cHash);
+      }
     }
-  */
 }
 
 inline int MeshRenderer::getAO(int e1, int e2, int c)
@@ -644,206 +635,95 @@ int MeshRenderer::getLighting(Chunk *chunk, const Point3i &wp, const Point3f &vp
 // 10ms avg
 void MeshRenderer::updateChunkMesh(Chunk *chunk)
 {
-  auto start = std::chrono::high_resolution_clock::now();
-  if(chunk->isEmpty())
-    { return; }
-  
   const Point3i cPos = chunk->pos();
   const hash_t cHash = Hash::hash(cPos);
+  if(chunk->isEmpty())
+    {
+      unload(cHash);
+      return;
+    }
   
-  bool empty = !chunk->calcBounds();
+  chunk->calcBounds();
   ChunkBounds *bounds = chunk->getBounds();
   bool hasFluids = mFluids->setChunkBoundary(cHash, bounds);
-
-  double t = (std::chrono::high_resolution_clock::now() - start).count();
-  chunk->updateConnected();
-
-  { // 4ms avg
-    std::lock_guard<std::mutex> lock(mTimingLock);
-    mBoundsTime += t;
-    mBoundsNum++;
-    if(mBoundsNum >= 16)
+  
+  MeshedChunk *mc = nullptr;
+  {
+    std::lock_guard<std::mutex> lock(mUnusedMCLock);
+    if(mUnusedMC.size() > 0)
       {
-        //LOGD("Avg Bounds Time: %f", mBoundsTime / mBoundsNum / 1000000000.0);
-        mBoundsTime = 0.0;
-        mBoundsNum = 0;
+        mc = mUnusedMC.front();
+        mUnusedMC.pop();
       }
   }
-  if(!empty)
+  if(!mc)
+    { mc = new MeshedChunk({cHash, MeshData()}); }
+  else
     {
-      MeshedChunk *mc = nullptr;
-      {
-        std::lock_guard<std::mutex> lock(mUnusedMCLock);
-        if(mUnusedMC.size() > 0)
-          {
-            mc = mUnusedMC.front();
-            mUnusedMC.pop();
-          }
-      }
-      if(!mc)
-        { mc = new MeshedChunk({cHash, MeshData()}); }
-      else
-        {
-          mc->hash = cHash;
-          mc->mesh.swap();
-        }
+      mc->hash = cHash;
+      mc->mesh.swap();
+    }
 
-      start = std::chrono::high_resolution_clock::now();
-      const Point3i minP({cPos[0]*Chunk::sizeX,
-                          cPos[1]*Chunk::sizeY,
-                          cPos[2]*Chunk::sizeZ} );
-      const Point3i maxP = minP + Chunk::size;
+  const Point3i minP({cPos[0]*Chunk::sizeX,
+                      cPos[1]*Chunk::sizeY,
+                      cPos[2]*Chunk::sizeZ} );
 
-      //Point3i diff = chunk->pos() - mCenter;
-      //float dist = sqrt(diff.dot(diff));
-  
-      bounds->lock();
-      if(true)//dist < 2.0)
+  bounds->lock();
+  std::unordered_map<hash_t, ActiveBlock> &chunkBounds = bounds->getBounds();
+  for(auto &iter : chunkBounds)
+    {
+      const hash_t hash = iter.first;
+      const ActiveBlock &block = iter.second;
+          
+      const Point3i bp = Hash::unhash(hash);
+      const Point3i vOffset = minP + bp;
+          
+      for(int i = 0; i < 6; i++)
         {
-          std::unordered_map<hash_t, ActiveBlock> &chunkBounds = bounds->getBounds();
-          for(auto &iter : chunkBounds)
+          if((block.sides & meshSides[i]) != blockSide_t::NONE)
             {
-              const hash_t hash = iter.first;
-              const ActiveBlock &block = iter.second;
-          
-              const Point3i bp = Hash::unhash(hash);
-              const Point3i vOffset = minP + bp;
-          
-              for(int i = 0; i < 6; i++)
-                {
-                  if((block.sides & meshSides[i]) != blockSide_t::NONE)
-                    {
-                      int vn = 0;
-                      int sum0 = 0;
-                      int sum1 = 0;
-                      const unsigned int numVert = mc->mesh.vertices().size();
-                      for(auto &v : faceVertices[meshSides[i]])
-                        { // add vertices for this face
-                          const int lighting = getLighting(chunk, vOffset, v.pos, meshSides[i]);
-                          sum0 += (vn < 2) ? lighting : 0;
-                          sum1 += (vn < 2) ? 0 : lighting;
-                      
-                          mc->mesh.vertices().emplace_back(vOffset + v.pos,
-                                                           v.normal,
-                                                           v.texcoord,
-                                                           (int)block.block - 1,
-                                                           (float)lighting / (float)4 );
-                          vn++;
-                        }
-                      const std::array<unsigned int, 6> *orientedIndices = (sum1 > sum0 ?
-                                                                            &flippedIndices :
-                                                                            &faceIndices );
-                      for(auto i : *orientedIndices)
-                        { mc->mesh.indices().push_back(numVert + i); }
-                    }
-                }
-            }
-        }
-      else
-        {
-          std::unordered_map<hash_t, ActiveBlock> &chunkBounds = bounds->getBounds();
-          for(auto &iter : chunkBounds)
-            {
-              const hash_t hash = iter.first;
-              const ActiveBlock &block = iter.second;
-          
-              const Point3i bp = Hash::unhash(hash);
-              const Point3i vOffset = minP + bp;
-
+              int vn = 0;
+              int sum0 = 0;
+              int sum1 = 0;
               const unsigned int numVert = mc->mesh.vertices().size();
-                  
-              //const int lighting = getLighting(chunk, vOffset, Point3f{0,0,0}, blockSide_t::NONE);
-              //sum0 += (vn < 2) ? lighting : 0;
-              //sum1 += (vn < 2) ? 0 : lighting;
-
-              if((bp[0]%2 + bp[1]%2 + bp[2]%2) != 0)
-                {
-                  mc->mesh.vertices().emplace_back(vOffset,// + v.pos,
-                                                   Vector3f{0,0,1},
-                                                   Vector2f{0.5, 0.5},
-                                                   (int)block.block - 1,
-                                                   (float)4 / (float)4 );
-                }
-              //mc->mesh.indices().push_back(numVert);
-              /*
-                for(int i = 0; i < 6; i++)
-                {
-                if((bool)(block.sides & meshSides[i]))
-                {
-                int vn = 0;
-                int sum0 = 0;
-                int sum1 = 0;
-                const unsigned int numVert = mc->mesh.vertices().size();
-                for(auto &v : faceVertices[meshSides[i]])
+              for(auto &v : faceVertices[meshSides[i]])
                 { // add vertices for this face
-                vn++;
+                  const int lighting = getLighting(chunk, vOffset, v.pos, meshSides[i]);
+                  if(vn < 2)
+                    { sum0 += lighting; }
+                  else
+                    { sum1 += lighting; }
+                      
+                  mc->mesh.vertices().emplace_back(vOffset + v.pos,
+                                                   v.normal,
+                                                   v.texcoord,
+                                                   (int)block.block - 1,
+                                                   (float)lighting / (float)4 );
+                  vn++;
                 }
-                const std::array<unsigned int, 6> *orientedIndices = (sum1 > sum0 ?
-                &flippedIndices :
-                &faceIndices );
-                for(auto i : *orientedIndices)
+              const std::array<unsigned int, 6> *orientedIndices = (sum1 > sum0 ?
+                                                                    &flippedIndices :
+                                                                    &faceIndices );
+              for(auto i : *orientedIndices)
                 { mc->mesh.indices().push_back(numVert + i); }
-                }
-                }
-              */
             }
-
-          for(int i = 0; i < mc->mesh.vertices().size(); i++)
-            {
-              std::vector<int> close;
-              auto &v = mc->mesh.vertices()[i];
-              float minDist = 100000000.0f;
-              int minI = i;
-              float minDist2 = 1000000000.0f;
-              int minI2 = i;
-              for(int j = 0; j < mc->mesh.vertices().size(); j++)
-                {
-                  auto &v2 = mc->mesh.vertices()[j];
-                  Point3i vDiff = v.pos - v2.pos;
-                  float vDist = vDiff.dot(vDiff);
-                  if(vDist < 6)
-                    {
-                      close.push_back(j);
-                    }
-                }
-
-              for(int j = 1; j < close.size(); j++)
-                {
-                  mc->mesh.indices().push_back(close[j]);
-                  mc->mesh.indices().push_back(close[j-1]);
-                  mc->mesh.indices().push_back(i);
-                }
-            }
-              
-        }
-      bounds->unlock();
-      {
-        std::lock_guard<std::mutex> lock(mRenderLock);
-        mComplexBlocks.erase(cHash);
-        mComplexBlocks.emplace(cHash, chunk->getComplex());
-      }
-      // pass to render thread
-      {
-        std::lock_guard<std::mutex> lock(mRenderQueueLock);
-        mRenderQueue.push(mc);
-      }
-      t = (std::chrono::high_resolution_clock::now() - start).count();
-
-      // 7ms avg
-      std::lock_guard<std::mutex> lock(mTimingLock);
-      mMeshTime += t;
-      mMeshNum++;
-      if(mMeshNum >= 16)
-        {
-          //LOGD("Avg Mesh Time: %f", mMeshTime / mMeshNum / 1000000000.0);
-          mMeshTime = 0.0;
-          mMeshNum = 0;
         }
     }
+  bounds->unlock();
+  {
+    std::lock_guard<std::mutex> lock(mRenderLock);
+    mComplexBlocks.erase(cHash);
+    mComplexBlocks.emplace(cHash, chunk->getComplex());
+  }
+  // pass to render thread
+  {
+    std::lock_guard<std::mutex> lock(mRenderQueueLock);
+    mRenderQueue.push(mc);
+  }
 }
 
-void MeshRenderer::setFrustum(Frustum *frustum)
-{ mFrustum = frustum; }
+void MeshRenderer::setCamera(Camera *camera)
+{ mCamera = camera; }
 void MeshRenderer::setFrustumCulling(bool on)
 { mFrustumCulling = on; }
 void MeshRenderer::pauseFrustumCulling()
@@ -853,16 +733,9 @@ void MeshRenderer::pauseFrustumCulling()
       std::lock_guard<std::mutex> lock(mRenderLock);
       if(!mFrustumPaused)
         {
-          mFrustumRender.clear();
-          int num = 0;
-          for(auto &iter : mRenderMeshes)
-            {
-              if(mFrustum->cubeInside(Hash::unhash(iter.first)*Chunk::size, Chunk::size))
-                { mFrustumRender.insert(iter.first); num++; }
-            }
           mFrustumPaused = true;
-          mPausedFrustum = *mFrustum;
-          std::cout << "FRUSTUM PAUSED --> " << num << " / " << mRenderMeshes.size() << " chunks rendered.\n";
+          mPausedCamera = *mCamera;
+          std::cout << "FRUSTUM PAUSED\n";
         }
       else
         {
@@ -875,5 +748,5 @@ void MeshRenderer::pauseFrustumCulling()
 
 MeshData MeshRenderer::makeFrustumMesh()
 {
-  return mPausedFrustum.makeDebugMesh();
+  return mPausedCamera.makeDebugMesh();
 }

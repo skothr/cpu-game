@@ -1,73 +1,55 @@
 #include "player.hpp"
 #include "logging.hpp"
 #include "shader.hpp"
-#include "geometry.hpp"
 #include "params.hpp"
 #include "fluid.hpp"
 
+#define PLAYER_EYE_OFFSET Vector3f{0,0,PLAYER_EYE_HEIGHT}
 
-// pos should be the BOTTOM-CENTER of the player's bounding box.
-Camera::Camera(Point3f pos, Vector3f forward, Vector3f up, Vector3f eyeOffset)
-  : cCollidable(pos + Vector3f{0,0,PLAYER_SIZE[2]*0.5f}, PLAYER_SIZE),
-    mEyeOffset(eyeOffset)
+Player::Player(Point3f pos, Vector3f forward, Vector3f vertical, World *world)
+  : mWorld(world), mCamera(pos + PLAYER_EYE_OFFSET), mBox(pos, PLAYER_SIZE),
+    mEyeOffset(PLAYER_EYE_OFFSET), mHighlightModel("./res/highlight.obj")
 {
-  mFrustum.setView(forward, up);
-  mFrustum.setPos(mBox.center() - Vector3f{0,0,PLAYER_SIZE[2]/2.0f} + mEyeOffset);
+  mCamera.setView(forward, vertical);
+  mToolParams.sphere.radius = 1;
 }
-
-void Camera::setProjection(float fov, float aspect, float zNear, float zFar)
-{
-  mFrustum.setProjection(fov, aspect, zNear, zFar);
-}
-
-Frustum* Camera::getFrustum()
-{ return &mFrustum; }
-
-void Camera::setPos(const Point3f &newPos)
-{
-  mBox.setCenter(newPos + Vector3f{0,0,PLAYER_SIZE[2]/2.0f});
-  mFrustum.setPos(mBox.center() - Vector3f{0,0,PLAYER_SIZE[2]/2.0f} + mEyeOffset);
-}
-
-void Camera::rotate(float pitch, float yaw)
-{
-  mFrustum.rotate(pitch, yaw);
-}
-
-Vector3f Camera::getEye() const
-{
-  return mFrustum.getEye();
-}
-Point3f Camera::getPos() const
-{
-  return mBox.center() - Vector3f{0,0,PLAYER_SIZE[2]/2.0f};
-}
-
-Matrix4 Camera::getView() const
-{
-  return mFrustum.getView();
-}
-Matrix4 Camera::getProjection() const
-{
-  return mFrustum.getProjection();
-}
-
-
-
-
-
-
-Player::Player(Point3f pos, Vector3f forward, Vector3f up, World *world,
-               Vector3f eyeOffset, float reach )
-  : Camera(pos, forward, up, eyeOffset), mWorld(world), mReach(reach),
-    mHighlightModel("./res/highlight.obj")
-{ }
 
 Player::~Player()
 {
   
 }
 
+void Player::setGodMode(bool on)
+{
+  mGodMode = on;
+  mReach = (on ? GOD_REACH : PLAYER_REACH);
+}
+void Player::setPlaceBlock(block_t type, BlockData *data)
+{
+  mPlaceBlock = {type, data ? data->copy() : nullptr};
+}
+void Player::setTool(tool_t tool)
+{
+  mTool = tool;
+}
+void Player::setToolRad(int rad)
+{
+  mToolParams.sphere.radius = rad;
+}
+void Player::nextPlaceBlock()
+{
+  mPlaceBlock.type = (block_t)(((int)mPlaceBlock.type + 1) % (int)simple_t::END);
+}
+void Player::prevPlaceBlock()
+{
+  mPlaceBlock.type = (block_t)(((int)mPlaceBlock.type - 1 + (int)simple_t::END) % (int)simple_t::END);
+}
+
+void Player::setPos(const Point3f &pos)
+{
+  mCamera.setPos(pos + mEyeOffset);
+  mBox.setPos(pos - Vector3f{mBox.size()[0]/2.0f, mBox.size()[1]/2.0f, 0.0f});
+}
 
 void Player::setSelectMode(bool mode)
 {
@@ -80,7 +62,7 @@ void Player::select(const Point2f &pos, const Matrix4 &proj)
   if(mSelectMode)
     { // find vector mouse is hovering over
       Matrix<4> pInv(proj.getQMat().inverted());
-      Matrix<4> vInv(getView().getQMat().inverted());
+      Matrix<4> vInv(mCamera.getView().getQMat().inverted());
       Vector<float, 4> pos({mSelectPos[0], mSelectPos[1], -1.0f, 1.0f});
       // inverse projection
       Vector<float, 4> rayEye = pInv * pos;
@@ -101,28 +83,92 @@ bool Player::pickUp()
 {
   if(mSelectedBlock.type != block_t::NONE)
     {
-      LOGI("Player picked up block! --> %d", (int)mSelectedBlock.type);
-      onPickup(mSelectedBlock.type);
-      mWorld->setBlock(mSelectedPos, block_t::NONE);
+      Point3i sPos = mSelectedPos;// + mSelectedFace;
+      if(mPlaceBlock.type == block_t::NONE ||
+         isSimpleBlock(mPlaceBlock.type) ||
+         isFluidBlock(mPlaceBlock.type) )
+        {
+          std::cout << "Player picked up block (" << (int)mPlaceBlock.type << ") at: " << sPos << "\n";
+          std::cout << "  Radius: " << mToolParams.sphere.radius << "\n";
+          switch(mTool)
+            {
+            case tool_t::SPHERE:
+              mWorld->setSphere(sPos, mToolParams.sphere.radius, block_t::NONE);
+              break;
+            case tool_t::CUBE:
+              if(mHaveCubePoint && mCubeRemove)
+                {
+                  mWorld->setRange(mCubeP1, sPos, block_t::NONE);
+                  mHaveCubePoint = false;
+                }
+              else
+                {
+                  mCubeP1 = sPos;
+                  mHaveCubePoint = true;
+                  mCubeRemove = true;
+                }
+              break;
+            case tool_t::LINE:
+              mWorld->setRange(sPos, sPos - mSelectedFace*mToolParams.sphere.radius, block_t::NONE);
+              break;
+            }
+        }
+      else
+        {
+          mWorld->setBlock(sPos, mPlaceBlock.type, mPlaceBlock.data);
+        }
     }
+  
+  // if(mSelectedBlock.type != block_t::NONE)
+  //   {
+  //     LOGI("Player picked up block! --> %d", (int)mSelectedBlock.type);
+  //     mWorld->setBlock(mSelectedPos, block_t::NONE);
+  //   }
   
   return true;
 }
 
 void Player::place()
 {
-  CompleteBlock block = onPlace();
-  if(block.type != block_t::NONE)
+  if(mPlaceBlock.type != block_t::NONE)
     {
-      if(mSelectedBlock.type != block_t::NONE)
-	{
-	  if(!mBox.collidesEdge(cBoundingBox(mSelectedPos + mSelectedFace,
-                                             Vector3f{1, 1, 1} )))
-	    {
-	      LOGI("Player placed block! --> %d", (int)mSelectedBlock.type);
-	      mWorld->setBlock(mSelectedPos + mSelectedFace, block.type, block.data);
-	    }
-	}
+      Point3i sPos = mSelectedPos + mSelectedFace;
+      if(isSimpleBlock(mPlaceBlock.type) ||
+         isFluidBlock(mPlaceBlock.type) )
+        {
+          std::cout << "Player placed block (" << (int)mPlaceBlock.type << ") at: " << sPos << "\n";
+          std::cout << "  Radius: " << mToolParams.sphere.radius << "\n";
+          switch(mTool)
+            {
+            case tool_t::SPHERE:
+              mWorld->setSphere(sPos, mToolParams.sphere.radius, mPlaceBlock.type, mPlaceBlock.data);
+              break;
+            case tool_t::CUBE:
+              if(mHaveCubePoint && !mCubeRemove)
+                {
+                  mWorld->setRange(mCubeP1, sPos, mPlaceBlock.type, mPlaceBlock.data);
+                  mHaveCubePoint = false;
+                }
+              else
+                {
+                  mCubeP1 = sPos;
+                  mHaveCubePoint = true;
+                  mCubeRemove = false;
+                }
+                  
+              break;
+            case tool_t::LINE:
+              {
+                 mWorld->setRange(sPos, sPos + mSelectedFace*mToolParams.sphere.radius,
+                                  mPlaceBlock.type, mPlaceBlock.data );
+              }
+              break;
+            }
+        }
+      else
+        {
+          mWorld->setBlock(sPos, mPlaceBlock.type, mPlaceBlock.data);
+        }
     }
 }
 bool Player::initGL(QObject *qParent)
@@ -131,7 +177,7 @@ bool Player::initGL(QObject *qParent)
   LOGI("  Creating block highlight shader...");
   mWireShader = new Shader(qParent);
   if(!mWireShader->loadProgram("./shaders/wireframe.vsh", "./shaders/wireframe.fsh",
-			       {"posAttr", "normalAttr", "texCoordAttr"}, {"pvm"}))
+			       {"posAttr", "normalAttr", "texCoordAttr"}, {"pvm", "stretch"}))
     {
       LOGE("  Block highlight shader failed to load!");
       return false;
@@ -139,6 +185,7 @@ bool Player::initGL(QObject *qParent)
   LOGI("  Initializing block highlight model...");
   mWireShader->bind();
   mHighlightModel.initGL(mWireShader);
+  mWireShader->setUniform("stretch", Vector3i{1,1,1});
   mWireShader->release();
   LOGI("Player GL initialized.");
   return true;
@@ -155,8 +202,8 @@ void Player::cleanupGL()
 
 void Player::render(Matrix4 pvm)
 {
-  Vector3f selectRay = (mSelectMode ? mSelectRay : getEye());
-  if(!mWorld->rayCast(mBox.center() - Vector3f{0,0,PLAYER_SIZE[2]/2.0f} + mEyeOffset, selectRay, mReach,
+  Vector3f selectRay = (mSelectMode ? mSelectRay : mCamera.getEye());
+  if(!mWorld->rayCast(mCamera.getPos(), selectRay, (mGodMode ? GOD_REACH : PLAYER_REACH),
 		      mSelectedBlock, mSelectedPos, mSelectedFace ))
     { mSelectedBlock = {block_t::NONE, nullptr}; }
   
@@ -164,10 +211,48 @@ void Player::render(Matrix4 pvm)
     {
       mWireShader->bind();
       mWireShader->setUniform("pvm", pvm);
-      mHighlightModel.render(mWireShader,
-                             pvm*matTranslate(mSelectedPos[0], mSelectedPos[1], mSelectedPos[2]));
+
+      if(mHaveCubePoint)
+        {
+          Point3i sPos = mSelectedPos;
+          if(!mCubeRemove)
+            { sPos += mSelectedFace; }
+          Point3f pos{std::min(sPos[0], mCubeP1[0]),
+                      std::min(sPos[1], mCubeP1[1]),
+                      std::min(sPos[2], mCubeP1[2])};
+          Vector3f size{std::abs(sPos[0] - mCubeP1[0])+1.0f,
+                        std::abs(sPos[1] - mCubeP1[1])+1.0f,
+                        std::abs(sPos[2] - mCubeP1[2])+1.0f };
+          mWireShader->setUniform("stretch", size);
+          mHighlightModel.render(mWireShader,
+                                 (pvm*matTranslate(pos[0], pos[1], pos[2])*
+                                  matScale(size[0], size[1], size[2]) ));
+        }
+      else
+        {
+          mWireShader->setUniform("stretch", Vector3i{1,1,1});
+          mHighlightModel.render(mWireShader,
+                                 pvm*matTranslate(mSelectedPos[0],
+                                                  mSelectedPos[1],
+                                                  mSelectedPos[2]) );
+        }
       mWireShader->release();
     }
+}
+
+
+void Player::moveX(int dir)
+{
+  mMoveForce[0] = PLAYER_SPEED * dir * (mSneaking ? 0.01f : (mRunning ? 10.0f : 1.0f));
+}
+void Player::moveY(int dir)
+{
+  mMoveForce[1] = PLAYER_SPEED * dir * (mSneaking ? 0.01f : (mRunning ? 10.0f : 1.0f));
+}
+void Player::moveZ(int dir)
+{
+  if(mGodMode)
+    { mMoveForce[2] = PLAYER_SPEED * dir * (mSneaking ? 0.01f : (mRunning ? 10.0f : 1.0f)); }
 }
 
 void Player::addForce(float right, float forward)
@@ -191,16 +276,41 @@ Point3i Player::getCollisions() const
   return mGrounded;
 }
 
+void Player::sneak(bool sneaking)
+{
+  mSneaking = sneaking;
+}
+void Player::run(bool running)
+{
+  mRunning = running;
+}
+void Player::jump(bool start)
+{
+  if(mGodMode)
+    { moveZ(start ? 1 : 0); }
+  else if(start && mIsGrounded[2])
+    {
+      mVel[2] = GRAVITY / 320.0f;
+      mIsGrounded[2] = false;
+      mGrounded[2] = 0;
+    }
+}
 
+#define PLAYER_DAMPING 800.0f
 
 void Player::update(double dt)
 {
-  onUpdate(dt);
-  Vector3f forward = mFrustum.getForward();
-  Vector3f right = mFrustum.getRight();
-  Vector3f up = mFrustum.getUp();
+  if(!mGodMode)
+    { // apply gravity
+      mMoveForce[2] = -GRAVITY*dt;
+    }
+  Vector3f forward = mCamera.getForward();
+  Vector3f right = mCamera.getRight();
+  Vector3f up = mCamera.getVertical();
 
-  mAccel = Vector3f{right[0], right[1], 0.0}  * mMoveForce[0] + Vector3f{forward[0], forward[1], 0} * mMoveForce[1] + up * mMoveForce[2] - mVel*800.0f*dt;
+  mAccel = (Vector3f{right[0], right[1], 0.0f} * mMoveForce[0] +
+            Vector3f{forward[0], forward[1], 0.0f} * mMoveForce[1] +
+            up * mMoveForce[2] - mVel*PLAYER_DAMPING*dt );
   mVel += mAccel * dt;
   
   Vector3f dPos = mVel * dt;
@@ -247,7 +357,7 @@ void Player::update(double dt)
                        dPos[1] < 0 ? min[1] : (dPos[1] > 0 ? max[1] : 0),
                        dPos[2] < 0 ? min[2] : (dPos[2] > 0 ? max[2] : 0) };
   
-  Point3f center = mBox.center();
+  Point3f center = mBox.pos() + mBox.size()/2.0f;
   Point3i vdir{mVel[0] < 0 ? -1 : 1,
 	       mVel[1] < 0 ? -1 : 1,
 	       mVel[2] < 0 ? -1 : 1 };
@@ -334,9 +444,9 @@ void Player::update(double dt)
               }
 	}
     }
-  //mBox.setCenter(center);
-
-  Point3i chunkPos = World::chunkPos(Point3i{(int)center[0],(int)center[1],(int)center[2]});
+  center[2] -= mBox.size()[2]/2.0f;
+  
+  Point3i chunkPos = World::chunkPos(Point3i{(int)center[0], (int)center[1], (int)center[2]});
   static Point3i lastChunkPos = chunkPos;
   if(chunkPos != lastChunkPos)
     {
@@ -346,13 +456,11 @@ void Player::update(double dt)
   
   mVel[0] *= PLAYER_DRAG;
   mVel[1] *= PLAYER_DRAG;
-
-  center[2] -= PLAYER_SIZE[2]/2.0f;
   setPos(center);
 }
 
 
-
+/*
 GodPlayer::GodPlayer(Point3f pos, Vector3f forward, Vector3f up, World *world)
   : Player(pos, forward, up, world,
            Vector3f{0,0,PLAYER_EYE_HEIGHT}, 256.0f) // far reach
@@ -375,7 +483,7 @@ void GodPlayer::prevPlaceBlock()
 }
 
 void GodPlayer::onPickup(block_t type)
-{ /* do nothing 'cause you're a god */ }
+{ }// do nothing 'cause you're a god  }
 CompleteBlock GodPlayer::onPlace()
 { return mPlaceBlock; }
 
@@ -414,3 +522,4 @@ CompleteBlock FpsPlayer::onPlace()
   mNextBlock = b;
   return {mNextBlock, nullptr};
 }
+*/

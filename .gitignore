@@ -15,7 +15,7 @@ Makefile.Debug
 Makefile.Release
 
 # other
-libs/
+#libs/
 worlds/
 *.old
 gmon.out

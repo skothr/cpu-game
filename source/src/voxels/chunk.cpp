@@ -5,25 +5,32 @@ const Indexer<Chunk::sizeX, Chunk::sizeY, Chunk::sizeZ> Chunk::mIndexer;
 const Point3i Chunk::size{sizeX, sizeY, sizeZ};
 
 Chunk::Chunk(const Point3i &worldPos)
-  : mWorldPos(worldPos)
+  : mWorldPos(worldPos), mHash(Hash::hash(worldPos))
 {
   for(auto &side : gBlockSides)
     {
       mNeighbors.emplace(side, nullptr);
+      mNeighborHashes.emplace(side, Hash::hash(worldPos + sideDirection(side)));
     }
-  // mConnectedEdges.emplace(blockSide_t::PX, blockSide_t::NONE);
-  // mConnectedEdges.emplace(blockSide_t::PY, blockSide_t::NONE);
-  // mConnectedEdges.emplace(blockSide_t::PZ, blockSide_t::NONE);
-  // mConnectedEdges.emplace(blockSide_t::NX, blockSide_t::NONE);
-  // mConnectedEdges.emplace(blockSide_t::NY, blockSide_t::NONE);
-  // mConnectedEdges.emplace(blockSide_t::NZ, blockSide_t::NONE);
 }
 
-bool Chunk::isEmpty() const
+void Chunk::setWorldPos(const Point3i &pos)
 {
-  //LOGD("CHUNK BLOCKS: %d", (int)mNumBlocks);
-  return mNumBlocks == 0;
+  mWorldPos = pos;
+  mHash = Hash::hash(pos);
+  for(auto &side : gBlockSides)
+    { mNeighborHashes[side] = Hash::hash(pos + sideDirection(side)); }
 }
+Point3i Chunk::pos() const
+{ return mWorldPos; }
+hash_t Chunk::hash() const
+{ return mHash; }
+hash_t Chunk::neighborHash(blockSide_t side)
+{ return mNeighborHashes[side]; }
+
+
+bool Chunk::isEmpty() const
+{ return mNumBlocks == 0; }
 
 
 Chunk* Chunk::getNeighbor(blockSide_t side)
@@ -61,14 +68,13 @@ bool Chunk::setBlock(int bx, int by, int bz, block_t type)
   block_t &b = mBlocks[bi];
   if((type != block_t::NONE) != (b != block_t::NONE))
     {
-      if(isComplexBlock(b))
-        {
-          mComplex.erase(bi);
-          mNumBlocks--;
-        }
-      b = type;
       if(b != block_t::NONE)
+        { mNumBlocks--; }
+      else
         { mNumBlocks++; }
+      if(isComplexBlock(b))
+        { mComplex.erase(bi); }
+      b = type;
       return true;
     }
   else
@@ -85,31 +91,20 @@ bool Chunk::setComplex(int bx, int by, int bz, CompleteBlock block)
   block_t &b = mBlocks[bi];
   if((b != block_t::NONE) != (block.type != block_t::NONE))
     {
+      if(block.type == block_t::NONE)
+        {
+          mComplex.erase(bi);
+          mNumBlocks--;
+        }
+      else if(block.data)
+        {
+          mComplex.emplace(bi, (ComplexBlock*)block.data);
+          mNumBlocks++;
+        }
+      else // invalid data
+        { return false; }
+        
       b = block.type;
-      auto iter = mComplex.find(bi);
-      if(iter != mComplex.end())
-        {
-          if(block.data)
-            {
-              iter->second = (ComplexBlock*)block.data;
-            }
-          else
-            {
-              mComplex.erase(bi);
-              mNumBlocks--;
-            }
-        }
-      else
-        {
-          if(block.data)
-            {
-              mNumBlocks++;
-              mComplex.emplace(bi, (ComplexBlock*)block.data);
-            }
-          else
-            { return false; }
-        }
-      
       if(block.data)
         {
           auto iterPX = mComplex.find(mIndexer.index(bx+1, by, bz));
@@ -184,7 +179,8 @@ enum
    PY_NZ = 0x800,
    NY_PZ = 0x1000,
    NY_NZ = 0x2000,
-   PZ_NZ = 0x4000
+   PZ_NZ = 0x4000,
+   ALL_EDGES = 0x4FFF
   };
 
 
@@ -285,117 +281,98 @@ void Chunk::floodFill(std::queue<Point3i> &points,
 
 void Chunk::updateConnected()
 {
-  mConnectedEdges = 0;
-
-  int numTraversed = 0;
-  static std::array<bool, totalSize> traversed;
-  for(int bi = 0; bi < totalSize; bi++)
-    { traversed[bi] = (mBlocks[bi] != block_t::NONE); }
-    
-  while(numTraversed < totalSize)
+  if(isEmpty())
     {
-      // find an untraversed block
-      int bi;
-      for(bi = 0; bi < totalSize; bi++)
+      mConnectedEdges = ALL_EDGES;
+      return;
+    }
+  else
+    { mConnectedEdges = NO_EDGE; }
+
+  std::unordered_set<int> untraversed;
+  std::unordered_set<int> edges;
+  for(int bi = 0; bi < totalSize; bi++)
+    {
+      if(mBlocks[bi] == block_t::NONE)
         {
-          if(!traversed[bi])
-            { break; }
+          untraversed.insert(bi);
+          if(chunkEdge(mIndexer.unindex(bi)) != blockSide_t::NONE)
+            { edges.insert(bi); }
         }
-      if(bi >= totalSize)
-        { break; }
+    }
+
+  while(edges.size() > 0 && untraversed.size() > 0)
+    {
+      int bi = *edges.begin();
+      edges.erase(bi);
       
-      std::queue<Point3i> blocks;
-      std::unordered_set<blockSide_t> openSides;
-      Point3i bp = mIndexer.unindex(bi);
-      blocks.push(bp);
+      std::queue<int> blocks;
+      blocks.push(bi);
 
       // flood fill empty space
+      blockSide_t openSides = blockSide_t::NONE;
       while(blocks.size() > 0)
         {
-          Point3i p = blocks.front();
+          int bi = blocks.front();
           blocks.pop();
           
-          int bi = mIndexer.index(p);
-          if(!traversed[bi])
+          if(untraversed.count(bi) > 0)
             { // block not traversed yet
-              traversed[bi] = true;
-              numTraversed++;
-              if(p[0] > 0)
-                { blocks.push({p[0]-1, p[1],   p[2]  }); }
-              else
-                { openSides.insert(blockSide_t::NX); }
-              if(p[0] < sizeX-1)
-                { blocks.push({p[0]+1, p[1],   p[2]  }); }
-              else
-                { openSides.insert(blockSide_t::PX); }
-              
-              if(p[1] > 0)
-                { blocks.push({p[0],   p[1]-1, p[2]  }); }
-              else
-                { openSides.insert(blockSide_t::NY); }
-              if(p[1] < sizeY-1)
-                { blocks.push({p[0],   p[1]+1, p[2]  }); }
-              else
-                { openSides.insert(blockSide_t::PY); }
-              
-              if(p[2] > 0)
-                { blocks.push({p[0],   p[1],   p[2]-1}); }
-              else
-                { openSides.insert(blockSide_t::NZ); }
-              if(p[2] < sizeZ-1)
-                { blocks.push({p[0],   p[1],   p[2]+1}); }
-              else
-                { openSides.insert(blockSide_t::PZ); }
-            }
-        }
+              untraversed.erase(bi);
+              Point3i p = mIndexer.unindex(bi);
 
-      std::vector<blockSide_t> sideVec(openSides.begin(), openSides.end());
-      for(int s = 0; s < sideVec.size(); s++)
-        {
-          for(int s2 = s+1; s2 < sideVec.size(); s2++)
-            {
-              mConnectedEdges |= edgeFlag(sideVec[s], sideVec[s2]);
+              openSides |= (p[0] == sizeX-1 ? blockSide_t::PX : blockSide_t::NONE);
+              openSides |= (p[1] == sizeY-1 ? blockSide_t::PY : blockSide_t::NONE);
+              openSides |= (p[2] == sizeZ-1 ? blockSide_t::PZ : blockSide_t::NONE);
+              openSides |= (p[0] == 0 ? blockSide_t::NX : blockSide_t::NONE);
+              openSides |= (p[1] == 0 ? blockSide_t::NY : blockSide_t::NONE);
+              openSides |= (p[2] == 0 ? blockSide_t::NZ : blockSide_t::NONE);
+              if(p[0] > 0)
+                { blocks.push(shiftNX(bi)); }
+              if(p[0] < sizeX-1)
+                { blocks.push(shiftPX(bi)); }
+              if(p[1] > 0)
+                { blocks.push(shiftPY(bi)); }
+              if(p[1] < sizeY-1)
+                { blocks.push(shiftNY(bi)); }
+              if(p[2] > 0)
+                { blocks.push(shiftPZ(bi)); }
+              if(p[2] < sizeZ-1)
+                { blocks.push(shiftNZ(bi)); }
             }
         }
-      //LOGD("Connected edges: 0x%04X", (int)mConnectedEdges);
+      for(int i = 0; i < 6; i++)
+        {
+          for(int j = i+1; j < 6; j++)
+            {
+              int c = (1 << i) | (1 << j);
+              if(((int)openSides & c) == c)
+                { mConnectedEdges |= edgeFlag((blockSide_t)(1 << i), (blockSide_t)(1 << j)); }
+            }
+        }
     }
   
-  // std::queue<Point3i> points;
-  
-  // for(int bi = 0; bi < totalSize; bi++)
-  //   {
-  //     if(!traversed[bi] && mBlocks[bi] == block_t::NONE)
-  //       { // empty unvisited block -- perform flood fill
-  //         Point3i bp = mIndexer.unindex(bi);
+}
 
-  //         blockSide_t dir = blockSide_t::NONE;
-          
-  //         if(bp[0] == 0 || bp[0] == sizeX-1 ||
-  //            bp[1] == 0 || bp[1] == sizeY-1 ||
-  //            bp[2] == 0 || bp[2] == sizeZ-1 )
-  //           { // block on edge of chunk
-  //             blockSide_t connectedSides = blockSide_t::NONE;
-  //             points.push(bp);
-  //             floodFill(points, traversed, connectedSides);
-              
-  //             if(bp[0] == 0)
-  //               { mConnectedEdges[blockSide_t::NX] |= connectedSides; }
-  //             else if(bp[0] == sizeX-1)
-  //               { mConnectedEdges[blockSide_t::PX] |= connectedSides; }
-  //             if(bp[1] == 0)
-  //               { mConnectedEdges[blockSide_t::NY] |= connectedSides; }
-  //             else if(bp[1] == sizeY-1)
-  //               { mConnectedEdges[blockSide_t::PY] |= connectedSides; }
-  //             if(bp[2] == 0)
-  //               { mConnectedEdges[blockSide_t::NZ] |= connectedSides; }
-  //             else if(bp[2] == sizeZ-1)
-  //               { mConnectedEdges[blockSide_t::PZ] |= connectedSides; }
-  //           }
-  //       }
-  //   }
-  // edges can't be connected to themselves
-  //for(auto &iter : mConnectedEdges)
-  //{ iter.second &= ~iter.first; }
+bool Chunk::sideOpen(blockSide_t side)
+{
+  switch(side)
+    {
+    case blockSide_t::PX:
+      return (bool)(mConnectedEdges & (PX_NX|PX_PY|PX_NY|PX_PZ|PX_NZ));
+    case blockSide_t::PY:
+      return (bool)(mConnectedEdges & (PX_PY|NX_PY|PY_NY|PY_PZ|PY_NZ));
+    case blockSide_t::PZ:
+      return (bool)(mConnectedEdges & (PX_PZ|NX_PZ|PY_PZ|NY_PZ|PZ_NZ));
+    case blockSide_t::NX:
+      return (bool)(mConnectedEdges & (PX_NX|NX_PY|NX_NY|NX_PZ|NX_NZ));
+    case blockSide_t::NY:
+      return (bool)(mConnectedEdges & (PX_NY|NX_NY|PY_NY|NY_PZ|NY_NZ));
+    case blockSide_t::NZ:
+      return (bool)(mConnectedEdges & (PX_NZ|NX_NZ|PY_NZ|NY_NZ|PZ_NZ));
+    default:
+      return false;
+    }
 }
 
 bool Chunk::edgesConnected(blockSide_t prevSide, blockSide_t nextSide)
@@ -411,19 +388,15 @@ bool Chunk::edgesConnected(blockSide_t prevSide, blockSide_t nextSide)
 void Chunk::printEdgeConnections()
 {
   LOGD("Connected edges: 0x%04X", (int)mConnectedEdges);
-  // LOGD("NX: %d", (int)mConnectedEdges[blockSide_t::NX]);
-  // LOGD("PX: %d", (int)mConnectedEdges[blockSide_t::PX]);
-  // LOGD("NY: %d", (int)mConnectedEdges[blockSide_t::NY]);
-  // LOGD("PY: %d", (int)mConnectedEdges[blockSide_t::PY]);
-  // LOGD("NZ: %d", (int)mConnectedEdges[blockSide_t::NZ]);
-  // LOGD("PZ: %d", (int)mConnectedEdges[blockSide_t::PZ]);
 }
 
 void Chunk::reset()
 {
   mNumBlocks = 0;
-  for(auto &b : mBlocks)
-    { b = block_t(); }
+  mComplex.clear();
+  mConnectedEdges = 0;
+  // for(auto &b : mBlocks)
+  //   { b = block_t::NONE; }
 }
 
 // TODO: Run length encoding
@@ -472,4 +445,5 @@ void Chunk::deserialize(const std::vector<uint8_t> &dataIn)
       */
     }
   mDirty = true;
+  updateConnected();
 }

@@ -19,6 +19,7 @@ enum class input_t
    // actions
    ACTION_JUMP,
    ACTION_SNEAK,
+   ACTION_RUN,
 
    // other input
    MOUSE_MOVE,

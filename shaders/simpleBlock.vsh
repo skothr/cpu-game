@@ -15,7 +15,7 @@ layout(location = 3) in float lightAttr; // third element is block type
 smooth out vec3 normal;
 smooth out vec3 texCoord;
 smooth out float lighting;
-smooth out float fog;
+smooth out vec3 dist;
 
 void main()
 {
@@ -25,8 +25,5 @@ void main()
   
   texCoord = vec3(texCoordAttr);
   lighting = lightAttr;
-  float dist = sqrt((camPos.x - posAttr.x)*(camPos.x - posAttr.x)*dirScale.x +
-                    (camPos.y - posAttr.y)*(camPos.y - posAttr.y)*dirScale.y +
-                    (camPos.z - posAttr.z)*(camPos.z - posAttr.z)*dirScale.z );
-  fog = (fogEnd - dist)/(fogEnd - fogStart);
+  dist = camPos - posAttr;
 }

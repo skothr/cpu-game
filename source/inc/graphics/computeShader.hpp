@@ -6,7 +6,7 @@
 #include <unordered_map>
 #include <QOpenGLFunctions_4_3_Core>
 
-#include "geometry.hpp"
+#include "matrix.hpp"
 
 class ComputeShader : protected QOpenGLFunctions_4_3_Core
 {

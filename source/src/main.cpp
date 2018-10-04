@@ -46,6 +46,9 @@ int main(int argc, char *argv[])
       
       return 0;
     }
+  QSurfaceFormat format = QSurfaceFormat::defaultFormat();
+  format.setSwapInterval(0);
+  QSurfaceFormat::setDefaultFormat(format);
   QApplication app(argc, argv);
   MainWindow window; //, numThreads, worldName, seed);
   window.show();

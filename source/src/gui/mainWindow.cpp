@@ -137,5 +137,5 @@ QSize MainWindow::minimumSizeHint() const
 { return QSize(512, 512); }
 
 QSize MainWindow::sizeHint() const
-{ return QSize(960, 1080); }
+{ return QSize(954, 1080); }
 

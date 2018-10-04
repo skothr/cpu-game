@@ -110,15 +110,18 @@ public:
   Vector<T, N>& operator*=(const Vector<T, N> &other);
   Vector<T, N> operator*(const Vector<T, N> &other) const;
 
-  Vector<T, N>& operator-()
-  {
-    for(int i = 0; i < N; i++)
-      { mData[i] = -mData[i]; }
-    return *this;
-  }
+  // Vector<T, N>& operator-()
+  // {
+  //   for(int i = 0; i < N; i++)
+  //     { mData[i] = -mData[i]; }
+  //   return *this;
+  // }
   Vector<T, N> operator-() const
   {
-    return -Vector<T, N>(*this);
+    Vector<T, N> result(*this);
+    for(int i = 0; i < N; i++)
+      { result[i] = -result[i]; }
+    return result;
   }
 
   /*
@@ -129,7 +132,6 @@ public:
   }
   */
 
-  
   Vector<T, N>& rotate(const Vector<T, N> &ax, T angle)
   {
     if(N != 3) throw std::logic_error("Can only rotate 3D vectors!");
@@ -143,12 +145,17 @@ public:
   }
   Vector<T, N> rotated(const Vector<T, N> &ax, T angle)
   {
+    /*
     if(N != 3) throw std::logic_error("Can only rotate 3D vectors!");
     const T cosa = cos(angle);
     const T sina = sin(angle);
     const Vector<T, N> cross = crossProduct(ax, *this) * sina;
     const Vector<T, N> axdot = ax * ax.dot(*this) * (1.0f - cosa);
     return (*this)*cosa + cross + axdot;
+    */
+    Vector<T, N> result = *this;
+    result.rotate(ax, angle);
+    return result;
   }
 
   T length() const;

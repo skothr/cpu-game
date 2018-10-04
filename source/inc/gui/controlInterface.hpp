@@ -31,7 +31,10 @@ public:
 signals:
     
 protected slots:
+  void tabClicked(int index);
+  void setMaterial(int id, bool checked);
   void setTool(int id, bool checked);
+  void setToolRad(int rad);
   void setLightLevel(int level);
   void setWireframe(int wireframe);
   void setFrustumCulling(int on);
@@ -62,6 +65,7 @@ private:
   DisplaySlider *mZSlider = nullptr;
 
   QButtonGroup *mMaterialGroup = nullptr;
+  QButtonGroup *mToolGroup = nullptr;
   
   // active material selection tab
   QWidget *mSimpleWidget = nullptr;
@@ -94,7 +98,7 @@ private:
   QButtonGroup *mDebugGroup = nullptr;
   QGroupBox* makeDebugGroup();
 
-  block_t mTool = block_t::NONE;
+  block_t mMaterial = block_t::NONE;
   float mFluidLevel = 1.0f;
 };
 

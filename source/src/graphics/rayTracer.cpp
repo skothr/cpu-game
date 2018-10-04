@@ -3,7 +3,7 @@
 #include "textureAtlas.hpp"
 #include "shader.hpp"
 #include "computeShader.hpp"
-#include "frustum.hpp"
+#include "camera.hpp"
 #include "chunk.hpp"
 #include "world.hpp"
 #include "quadBuffer.hpp"
@@ -140,9 +140,9 @@ void RayTracer::render(const Matrix4 &pvm, const Point3f &camPos)
   mShader->bind();
   mShader->setUniform("camPos", Chunk::blockPos(camPos));
   mShader->setUniform("screenSize", mScreenSize);
-  const float fov = mFrustum->getFov()/180.0f * M_PI;
-  const Vector3f eye = mFrustum->getEye();
-  const Vector3f right = mFrustum->getRight() * tan(fov/2.0f)*mFrustum->getAspect();
+  const float fov = mCamera->getFovY();
+  const Vector3f eye = mCamera->getEye();
+  const Vector3f right = mCamera->getRight() * tan(fov/2.0f)*mCamera->getAspect();
   const Vector3f up = crossProduct(right, eye).normalized() * tan(fov/2.0f);
   
   mShader->setUniform("v00", (eye - right - up).normalized());
@@ -190,8 +190,8 @@ void RayTracer::setFog(float fogStart, float fogEnd, const Vector3f &dirScale)
   mFogChanged = true;
 }
 
-void RayTracer::setFrustum(Frustum *frustum)
-{ mFrustum = frustum; }
+void RayTracer::setCamera(Camera *camera)
+{ mCamera = camera; }
 void RayTracer::setFrustumCulling(bool on)
 { mFrustumCulling = on; }
 
@@ -205,7 +205,7 @@ void RayTracer::pauseFrustum()
       int num = 0;
       for(auto &iter : mChunks)
         {
-          if(mFrustum->cubeInside(Hash::unhash(iter.first)*Chunk::size, Chunk::size))
+          if(mCamera->cubeInFrustum(Hash::unhash(iter.first)*Chunk::size, Chunk::size))
             { mFrustumRender.insert(iter.first); num++; }
           else
             { mFrustumRender.erase(iter.first); }

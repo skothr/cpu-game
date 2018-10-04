@@ -4,23 +4,28 @@
 #include "block.hpp"
 #include "vector.hpp"
 #include "indexing.hpp"
+#include "hashing.hpp"
 #include "meshing.hpp"
 #include <array>
 #include <queue>
 #include <unordered_map>
 #include <unordered_set>
+#include <memory>
 
 // NOTE:
 //  - wx/wy/wz denotes block position within world
 //  - bx/by/bz denotes block position within chunk
 
+//typedef std::shared_ptr<Chunk> ChunkPtr;
+typedef Chunk* ChunkPtr;
+
 class Chunk
 {
 public:
   // size
-  static const int shiftX = 6;
-  static const int shiftY = 6;
-  static const int shiftZ = 6;
+  static const int shiftX = 5;
+  static const int shiftY = 5;
+  static const int shiftZ = 5;
   static const int sizeX = (1 << shiftX);
   static const int sizeY = (1 << shiftY);
   static const int sizeZ = (1 << shiftZ);
@@ -49,9 +54,10 @@ public:
   ChunkBounds* getBounds()
   { return &mBounds; }
   
-  void setWorldPos(const Point3i &pos)
-  { mWorldPos = pos; }
-  Point3i pos() const { return mWorldPos; }
+  void setWorldPos(const Point3i &pos);
+  Point3i pos() const;
+  hash_t hash() const;
+  hash_t neighborHash(blockSide_t side);
   bool isEmpty() const;
 
   // data access
@@ -86,15 +92,21 @@ public:
                  blockSide_t &sides );
   void updateConnected();
   bool edgesConnected(blockSide_t prevSide, blockSide_t nextSide);
+  bool sideOpen(blockSide_t side);
   void printEdgeConnections();
   
   // updating
   bool isDirty() { return mDirty; }
   void setDirty(bool dirty) { mDirty = dirty; }
+  bool isPriority() { return mPriority; }
+  void setPriority(bool priority) { mPriority = priority; }
+  
   bool needsSave() { return mNeedSave; }
   void setNeedSave(bool needSave) { mNeedSave = needSave; }
   bool isReady() { return mReady; }
   void setReady(bool ready) { mReady = ready; }
+  bool isUnloaded() { return mUnloaded; }
+  void setUnloaded(bool unloaded) { mUnloaded = unloaded; }
 
   // serialization
   int serialize(std::vector<uint8_t> &dataOut) const;
@@ -106,15 +118,19 @@ private:
   static const Indexer<sizeX, sizeY, sizeZ> mIndexer;
   
   Point3i mWorldPos;
+  hash_t mHash;
   ChunkBounds mBounds;
   std::array<block_t, totalSize> mBlocks;
   std::unordered_map<int, ComplexBlock*> mComplex;
   std::unordered_map<blockSide_t, Chunk*> mNeighbors;
+  std::unordered_map<blockSide_t, hash_t> mNeighborHashes;
   
   std::atomic<int> mNumBlocks = 0;
   std::atomic<bool> mDirty = true;
+  std::atomic<bool> mPriority = false;
   std::atomic<bool> mNeedSave = false;
   std::atomic<bool> mReady = false;
+  std::atomic<bool> mUnloaded = false;
 
   //std::unordered_map<blockSide_t, blockSide_t> mConnectedEdges;
   uint16_t mConnectedEdges = 0;

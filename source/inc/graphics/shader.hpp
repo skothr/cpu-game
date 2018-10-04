@@ -1,18 +1,14 @@
 #ifndef SHADER_HPP
 #define SHADER_HPP
 
-//#include <GL/glew.h>
-//#include <GL/gl.h>
-
 #include <string>
 #include <vector>
 #include <unordered_map>
 #include <QOpenGLFunctions_4_3_Core>
 #include <QObject>
 
-#include "geometry.hpp"
+#include "matrix.hpp"
 
-//class QOpenGLShaderProgram;
 
 class Shader : public QObject, protected QOpenGLFunctions_4_3_Core
 {
@@ -40,7 +36,6 @@ public:
   
 private:
   bool mLoaded = false;
-  //QOpenGLShaderProgram *mProgram = nullptr;
 
   GLuint mProgramId = 0;
   GLuint mVertShaderId = 0;

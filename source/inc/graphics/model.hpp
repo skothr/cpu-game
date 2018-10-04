@@ -5,7 +5,7 @@
 #include "mesh.hpp"
 #include "objLoader.hpp"
 #include "shader.hpp"
-#include "geometry.hpp"
+#include "matrix.hpp"
 #include <vector>
 #include <string>
 

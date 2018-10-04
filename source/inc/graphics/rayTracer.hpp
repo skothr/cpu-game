@@ -4,7 +4,7 @@
 #include "hashing.hpp"
 #include "vertex.hpp"
 #include "vector.hpp"
-#include "geometry.hpp"
+#include "matrix.hpp"
 
 #include <mutex>
 #include <unordered_map>
@@ -16,7 +16,7 @@ class Chunk;
 class cTextureAtlas;
 class ComputeShader;
 class Shader;
-class Frustum;
+class Camera;
 class QuadBuffer;
 
 class RayTracer : protected QOpenGLFunctions_4_3_Core
@@ -29,7 +29,7 @@ public:
   void cleanupGL();
   void render(const Matrix4 &pvm, const Point3f &camPos);
   
-  void setFrustum(Frustum *frustum);
+  void setCamera(Camera *camera);
   void setFrustumCulling(bool on);
   void pauseFrustum();
   void setScreenSize(const Point2i &size);
@@ -44,7 +44,7 @@ private:
   bool mInitialized = false;
   bool mFrustumCulling = true;
   bool mFrustumPaused = false;
-  Frustum *mFrustum = nullptr;
+  Camera *mCamera = nullptr;
   std::unordered_set<hash_t> mFrustumRender;
   
   bool mFogChanged = false;

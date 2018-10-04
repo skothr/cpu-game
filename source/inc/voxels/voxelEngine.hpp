@@ -4,23 +4,19 @@
 #include <string>
 
 #include "input.hpp"
-#include "geometry.hpp"
+#include "matrix.hpp"
 #include "timedThread.hpp"
+#include "threadPool.hpp"
 #include "world.hpp"
 #include "params.hpp"
+#include "tool.hpp"
 
 #define GOD_PLAYER true
 
 class QObject;
 class TimedThread;
 class World;
-
 class Player;
-#if GOD_PLAYER
-class GodPlayer;
-#else
-class FpsPlayer;
-#endif // GOD_PLAYER
 
 class VoxelEngine
 {
@@ -68,7 +64,9 @@ public:
   World* getWorld();
   void sendInput(const InputData &data);
 
-  void setTool(block_t type, BlockData *data);
+  void setMaterial(block_t type, BlockData *data);
+  void setTool(tool_t tool);
+  void setToolRad(int rad);
   void nextTool();
   void prevTool();
   
@@ -81,13 +79,8 @@ private:
 
   double mFramerate = 0.0;
   
-#if GOD_PLAYER
-  GodPlayer *mPlayer;
-#else // !GOD_PLAYER (FPS_PLAYER)
-  FpsPlayer *mPlayer;
-#endif // GOD_PLAYER
-  
   World *mWorld;
+  Player *mPlayer;
   TimedThread mPhysicsThread;
   TimedThread mBlockThread;
   ThreadPool mMainThread;
