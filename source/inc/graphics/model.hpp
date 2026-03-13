@@ -20,10 +20,9 @@ public:
 
   void setMode(GLenum mode);
   
-  const std::vector<cTexVertex>* getVertices() const
-  { return (mMeshes.size() > 0 ? &mMeshes[0].getVertices() : nullptr); }
-  const std::vector<unsigned int>* getIndices() const
-  { return (mMeshes.size() > 0 ? &mMeshes[0].getIndices() : nullptr); }
+  const std::vector<cTexVertex>*  getVertices() const { return (mMeshes.size() > 0 ? &mMeshes[0].getVertices() : nullptr); }
+  const std::vector<unsigned int>* getIndices() const { return (mMeshes.size() > 0 ? &mMeshes[0].getIndices()  : nullptr); }
+
 private:
   std::vector<Mesh> mMeshes;
   

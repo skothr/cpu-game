@@ -43,7 +43,7 @@ bool ModelObj::loadModel(const std::string &filePath)
     {
       //mMeshes.reserve(loader.LoadedMeshes.size());
       for(auto &m : loader.LoadedMeshes)
-	{ mMeshes.emplace_back(m); }
+        { mMeshes.push_back(m); }
       return true;
     }
   else

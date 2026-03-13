@@ -1,9 +1,11 @@
 #include "chunkLoadWidget.hpp"
 #include "world.hpp"
 #include <QGridLayout>
-#include <QPaintEvent>
 #include <QPainter>
+#include <QPaintEvent>
+#include <QPainterPath>
 #include <QRectF>
+
 
 ChunkLoadWidget::ChunkLoadWidget(World *world, QWidget *parent)
   : QWidget(parent), mWorld(world), mOptions(std::string("1111111"))

@@ -29,7 +29,9 @@ class Mesh : protected QOpenGLFunctions_4_3_Core
 {
 public:
   Mesh();//bool doubleBuffered = true);
-  Mesh(const objl::Mesh &mesh);//, bool doubleBuffered = true);
+  Mesh(const Mesh &mesh);
+  Mesh(Mesh &&mesh);
+  Mesh(const objl::Mesh &mesh);
   ~Mesh();
 
   void setMode(GLenum mode);

@@ -8,6 +8,32 @@ Mesh::Mesh()//bool doubleBuffered)
 
 }
 
+Mesh::Mesh(const Mesh &mesh)
+  : mName(mesh.mName), mMaterial(mesh.mMaterial), mMode(mesh.mMode)
+{
+  setMesh(mesh.mVertices, mesh.mIndices);
+}
+
+Mesh::Mesh(Mesh &&mesh)
+  : mName(mesh.mName), mMaterial(mesh.mMaterial),
+    mVertices(mesh.mVertices.begin(), mesh.mVertices.end()), mIndices(mesh.mIndices.begin(), mesh.mIndices.end()),
+    mLoaded(mesh.mLoaded), mVbo(mesh.mVbo), mIbo(mesh.mIbo), mVbo2(mesh.mVbo2), mIbo2(mesh.mIbo2),
+    mVao(mesh.mVao), mNeedUpdate(mesh.mNeedUpdate), mMode(mesh.mMode)
+{
+  mesh.mName = "";
+  mesh.mMaterial = objl::Material();
+  mesh.mVertices.clear();
+  mesh.mIndices.clear();
+  mesh.mLoaded = false;
+  mesh.mVbo  = nullptr;
+  mesh.mIbo  = nullptr;
+  mesh.mVbo2 = nullptr;
+  mesh.mIbo2 = nullptr;
+  mesh.mVao  = nullptr;
+  mesh.mNeedUpdate = (UPDATE_VERTICES | UPDATE_INDICES);
+  mMode = GL_TRIANGLES;
+}
+
 Mesh::Mesh(const objl::Mesh &mesh)//, bool doubleBuffered)
   : mName(mesh.MeshName)//, mMaterial(mesh.MeshMaterial)
     //mRenderLock(new std::mutex()), mDB(doubleBuffered)

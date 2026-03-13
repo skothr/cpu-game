@@ -12,11 +12,11 @@ QT += opengl openglextensions
 TARGET = cpugame
 TEMPLATE = app debug_and_release
 
-CONFIG += c++1z warn_off debug_and_release
+CONFIG += c++20 warn_off debug_and_release
 LIBS += -lstdc++fs
 
-QMAKE_CXX_FLAGS_DEBUG += -O0 -pg #-fno-inline-functions
-QMAKE_CXX_FLAGS_RELEASE += -O3 -pg #-funroll-all-loops
+QMAKE_CXX_FLAGS_DEBUG   += -pg -O1 #-fno-inline-functions
+QMAKE_CXX_FLAGS_RELEASE += -pg -O3 #-funroll-all-loops
 
 QMAKE_LDFLAGS_DEBUG += -pg
 QMAKE_LDFLAGS_RELEASE += -pg
