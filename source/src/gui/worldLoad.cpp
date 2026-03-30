@@ -115,12 +115,7 @@ WorldLoad::WorldLoad(World *world, QWidget *parent)
   
   QFrame *innerFrame = new QFrame();
   innerFrame->setFrameStyle(QFrame::Box);
-  
-  QPalette pal = innerFrame->palette();
-  pal.setColor(QPalette::Window, QColor(Qt::black));
   innerFrame->setAutoFillBackground(true);
-  innerFrame->setPalette(pal);
-  innerFrame->update();
   innerFrame->setLayout(innerLayout);
 
   QHBoxLayout *hb = new QHBoxLayout();

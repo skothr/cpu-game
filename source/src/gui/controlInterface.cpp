@@ -93,7 +93,13 @@ ControlInterface::ControlInterface(VoxelEngine *engine, QWidget *parent)
   mMainLayout->addWidget(mControlTabs, 0, 1, 1, 1, Qt::AlignLeft|Qt::AlignTop);
   mMainLayout->addWidget(mTabStackWidget, 0, 0, 1, 1, Qt::AlignLeft);
   setLayout(mMainLayout);
-  
+
+  // semi-opaque dark background so the panel is readable over the game view
+  setAutoFillBackground(true);
+  QPalette pal = palette();
+  pal.setColor(QPalette::Window, QColor(30, 30, 30, 200));
+  setPalette(pal);
+
   connect(mControlTabs, SIGNAL(currentChanged(int)), mTabStack, SLOT(setCurrentIndex(int)));
 }
 

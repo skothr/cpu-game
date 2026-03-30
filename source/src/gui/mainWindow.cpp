@@ -27,8 +27,18 @@
 MainWindow::MainWindow(QWidget *parent)
   : QWidget(parent)
 {
-  QPalette pal = palette();
-  pal.setColor(QPalette::Button, QColor(Qt::black));
+  QPalette pal;
+  pal.setColor(QPalette::Window,          QColor(30, 30, 30));
+  pal.setColor(QPalette::WindowText,      QColor(Qt::white));
+  pal.setColor(QPalette::Base,            QColor(15, 15, 15));
+  pal.setColor(QPalette::AlternateBase,   QColor(45, 45, 45));
+  pal.setColor(QPalette::Text,            QColor(Qt::white));
+  pal.setColor(QPalette::Button,          QColor(45, 45, 45));
+  pal.setColor(QPalette::ButtonText,      QColor(Qt::white));
+  pal.setColor(QPalette::Highlight,       QColor(70, 130, 180));
+  pal.setColor(QPalette::HighlightedText, QColor(Qt::white));
+  pal.setColor(QPalette::ToolTipBase,     QColor(Qt::black));
+  pal.setColor(QPalette::ToolTipText,     QColor(Qt::white));
   setPalette(pal);
   update();
   
@@ -67,7 +77,7 @@ MainWindow::MainWindow(QWidget *parent)
   mainLayout->addWidget(mMenu);
   setLayout(mainLayout);
   move(10,10);
-  resize(960, 1020);
+  resize(1280, 720);
 }
 
 MainWindow::~MainWindow()
